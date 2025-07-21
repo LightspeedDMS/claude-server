@@ -1,0 +1,15 @@
+using ClaudeBatchServer.Core.Models;
+
+namespace ClaudeBatchServer.Core.Services;
+
+public interface IRepositoryService
+{
+    Task<List<Repository>> GetRepositoriesAsync();
+    Task<Repository?> GetRepositoryAsync(string name);
+    Task<string> CreateCowCloneAsync(string repositoryName, Guid jobId);
+    Task<bool> RemoveCowCloneAsync(string cowPath);
+    Task<List<Models.FileInfo>> GetFilesAsync(string cowPath, string? subPath = null);
+    Task<byte[]?> DownloadFileAsync(string cowPath, string filePath);
+    Task<string?> GetFileContentAsync(string cowPath, string filePath);
+    Task<bool> ValidateCowSupportAsync();
+}

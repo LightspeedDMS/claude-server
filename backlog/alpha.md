@@ -229,7 +229,11 @@ GET /admin/sessions
 - **Process Management**: System.Diagnostics.Process with user impersonation
 - **Queue Management**: In-memory queue with configurable concurrency limits
 - **Logging**: Serilog with structured logging
-- **Testing**: xUnit, integration tests with TestContainers
+- **Testing**: 
+  - **Unit Tests**: xUnit with FluentAssertions for readable assertions
+  - **Integration Tests**: ASP.NET Core TestHost with TestContainers for Docker integration
+  - **E2E Tests**: Real Claude Code execution with actual authentication
+  - **TDD Approach**: Test-driven development for all components
 
 ### Security Requirements
 - HTTPS-only communication
@@ -316,20 +320,51 @@ GET /admin/sessions
 - Failed jobs retained for debugging (configurable retention period)
 - Disk space monitoring with automatic cleanup of oldest jobs
 
+### Test Credentials and E2E Configuration
+
+**Testing Strategy**:
+- **Unit Tests**: Mock all external dependencies (filesystem, processes, auth)
+- **Integration Tests**: Real filesystem operations, mocked Claude Code execution
+- **E2E Tests**: Real Claude Code execution with actual user authentication
+
+**E2E Test Requirements**:
+- Real system user account for testing user impersonation
+- Actual Claude Code installation and authentication
+- Test repository with known content for validation
+- Configurable test timeouts and cleanup
+
+**Credential Storage for E2E Tests**:
+- **Option 1 - Cleartext** (easier development): Store username/password in `.env`
+- **Option 2 - Hashed** (more secure): Store password hash, verify against shadow file
+- **Recommendation**: Start with cleartext in `.env` for development, add hash option later
+
+**E2E Test Configuration** (`.env` file):
+```
+# E2E Test Configuration (not versioned)
+E2E_TEST_USERNAME=testuser
+E2E_TEST_PASSWORD=testpassword
+E2E_TEST_REPO_PATH=/workspace/repos/test-repo
+E2E_CLAUDE_TIMEOUT=300
+E2E_CLEANUP_ENABLED=true
+```
+
 ## Acceptance Criteria
 
-### Phase 1: Basic Functionality (Shadow File Auth)
+### Phase 1: Basic Functionality (Shadow File Auth + TDD)
 - [ ] Install script works on Rocky Linux 9 and Ubuntu 22.04+
-- [ ] REST API with shadow file authentication and JWT tokens
-- [ ] Job creation with prompt and repository selection
-- [ ] Image upload system with per-job isolation
-- [ ] Copy-on-Write repository cloning system
-- [ ] Job queue with configurable concurrency limits
-- [ ] Claude Code execution with user impersonation
-- [ ] Job monitoring and output capture
-- [ ] File download/access from job workspaces
-- [ ] Automatic job cleanup with timeouts
-- [ ] Basic logging and error handling
+- [ ] TDD test framework setup (xUnit, FluentAssertions, TestContainers)
+- [ ] Unit tests for shadow file authentication with JWT tokens
+- [ ] Unit tests for job creation with prompt and repository selection
+- [ ] Unit tests for image upload system with per-job isolation
+- [ ] Unit tests for Copy-on-Write repository cloning system
+- [ ] Unit tests for job queue with configurable concurrency limits
+- [ ] Integration tests for user impersonation and process management
+- [ ] Integration tests for job monitoring and output capture
+- [ ] Integration tests for file download/access from job workspaces
+- [ ] E2E tests with real Claude Code execution and user authentication
+- [ ] E2E tests for complete job workflow (create → upload → start → monitor → download)
+- [ ] Unit tests for automatic job cleanup with timeouts
+- [ ] Comprehensive logging and error handling with tests
 
 ### Phase 2: Production Ready + PAM Integration
 - [ ] PAM integration for enterprise authentication
