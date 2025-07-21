@@ -1,0 +1,79 @@
+# .NET Core
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vs/
+.vscode/
+publish/
+*.publishsettings
+
+# Docker
+.env
+docker-compose.override.yml
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime and temp files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Local configuration
+appsettings.local.json
+secrets.json
+
+# Development workspace
+/workspace/
+/debug/
+
+# Test artifacts
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Package files
+*.nupkg
+*.snupkg
+
+# NuGet
+packages/
+.nuget/
+
+# MSBuild
+*.binlog
+
+# Node.js (if any frontend components)
+node_modules/
+npm-debug.log
+yarn-error.log
