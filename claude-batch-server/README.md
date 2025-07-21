@@ -90,12 +90,21 @@ journalctl -u claude-batch-server -f
 ### Authentication
 
 #### POST /auth/login
-Authenticate with system credentials.
+Authenticate with system credentials using either plaintext passwords or pre-computed hashes.
 
+**Option 1: Plaintext Password**
 ```json
 {
   "username": "your-username",
   "password": "your-password"
+}
+```
+
+**Option 2: Pre-computed Hash (Recommended for HTTP)**
+```json
+{
+  "username": "your-username",
+  "password": "$6$randomsalt$precomputedHashFromShadowFile..."
 }
 ```
 
@@ -107,6 +116,24 @@ Response:
   "expires": "2024-07-22T12:00:00Z"
 }
 ```
+
+**Generating Password Hashes:**
+```bash
+# Generate SHA-512 hash (recommended)
+python3 -c "import crypt; print(crypt.crypt('your_password', crypt.mksalt(crypt.METHOD_SHA512)))"
+
+# Or using openssl
+openssl passwd -6 your_password
+
+# Interactive (secure - doesn't show in bash history)
+python3 -c "import crypt, getpass; print(crypt.crypt(getpass.getpass('Password: '), crypt.mksalt(crypt.METHOD_SHA512)))"
+```
+
+**Security Benefits of Hash Authentication:**
+- No plaintext passwords transmitted (even over HTTP)
+- Compatible with shadow file format ($1$, $5$, $6$ algorithms)
+- Client never needs to store plaintext passwords
+- Maintains salt-based security from system password hashes
 
 #### POST /auth/logout
 Logout and revoke JWT token.
@@ -218,6 +245,37 @@ The system automatically detects and uses the most efficient CoW method:
 - **Health Checks**: Built-in health monitoring
 - **Metrics**: Job queue metrics and performance tracking
 - **Log Rotation**: Automatic log rotation and cleanup
+
+## Usage Examples
+
+### Authentication with Hash (Recommended for HTTP)
+
+```bash
+# Step 1: Generate password hash
+HASH=$(python3 -c "import crypt; print(crypt.crypt('mypassword123', crypt.mksalt(crypt.METHOD_SHA512)))")
+echo "Generated hash: $HASH"
+
+# Step 2: Login with hash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"testuser\",\"password\":\"$HASH\"}"
+
+# Step 3: Use JWT token for authenticated requests
+TOKEN="your-jwt-token-here"
+curl -X POST http://localhost:8080/jobs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt":"List files in this repository","repository":"test-repo"}'
+```
+
+### Authentication with Plaintext (HTTPS recommended)
+
+```bash
+# Login with plaintext password
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"myplaintextpassword"}'
+```
 
 ## API Access
 

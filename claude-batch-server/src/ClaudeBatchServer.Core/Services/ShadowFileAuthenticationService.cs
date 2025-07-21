@@ -106,7 +106,20 @@ public class ShadowFileAuthenticationService : IAuthenticationService
             var shadowEntry = await ReadShadowEntryAsync(username);
             if (shadowEntry == null) return null;
 
-            var isValid = VerifyPassword(password, shadowEntry);
+            bool isValid;
+            
+            // Check if password is already a hash (hybrid authentication)
+            if (IsPrecomputedHash(password))
+            {
+                // Direct hash comparison for pre-computed hashes
+                isValid = VerifyPrecomputedHash(password, shadowEntry);
+            }
+            else
+            {
+                // Traditional password verification for plaintext
+                isValid = VerifyPassword(password, shadowEntry);
+            }
+            
             if (!isValid) return null;
 
             return new User
@@ -197,6 +210,33 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         var input = Encoding.UTF8.GetBytes(password + salt);
         var hash = sha512.ComputeHash(input);
         return Convert.ToBase64String(hash).TrimEnd('=');
+    }
+
+    /// <summary>
+    /// Detects if the provided password is already a pre-computed hash in shadow file format
+    /// </summary>
+    private bool IsPrecomputedHash(string password)
+    {
+        // Shadow file hash format: $algorithm$salt$hash
+        // Valid algorithms: $1$ (MD5), $5$ (SHA-256), $6$ (SHA-512)
+        if (!password.StartsWith("$")) return false;
+        
+        var parts = password.Split('$');
+        if (parts.Length < 4) return false;
+        
+        // Check if algorithm is supported
+        var algorithm = parts[1];
+        return algorithm is "1" or "5" or "6";
+    }
+
+    /// <summary>
+    /// Verifies a pre-computed hash directly against the shadow file entry
+    /// </summary>
+    private bool VerifyPrecomputedHash(string providedHash, string shadowHash)
+    {
+        // For pre-computed hashes, we compare them directly
+        // This allows clients to authenticate using the exact hash from shadow file
+        return string.Equals(providedHash, shadowHash, StringComparison.Ordinal);
     }
 
     private string GenerateJwtToken(User user)
