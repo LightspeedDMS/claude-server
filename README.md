@@ -45,6 +45,11 @@ docker-compose up -d
 - `GET /jobs/{id}/files` - List job workspace files
 - `GET /jobs/{id}/files/download` - Download files from job workspace
 
+## Documentation
+
+- [Development Roadmap](backlog/alpha.md) - Detailed requirements and implementation plan
+- [HTTPS Setup Guide](claude-batch-server/docs/HTTPS-SETUP.md) - Complete SSL/TLS configuration
+
 ## Development
 
 See [backlog/alpha.md](backlog/alpha.md) for detailed requirements and implementation plan.
