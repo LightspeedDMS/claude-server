@@ -29,18 +29,8 @@ public class RepositoriesController : ControllerBase
     {
         try
         {
-            var repositories = await _repositoryService.GetRepositoriesAsync();
-            var response = repositories.Select(r => new RepositoryResponse
-            {
-                Name = r.Name,
-                Path = r.Path,
-                Description = r.Description,
-                GitUrl = r.GitUrl,
-                RegisteredAt = r.RegisteredAt,
-                CloneStatus = r.CloneStatus
-            }).ToList();
-
-            return Ok(response);
+            var repositories = await _repositoryService.GetRepositoriesWithMetadataAsync();
+            return Ok(repositories);
         }
         catch (Exception ex)
         {

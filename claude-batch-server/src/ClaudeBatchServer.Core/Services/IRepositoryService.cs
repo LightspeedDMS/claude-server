@@ -1,10 +1,12 @@
 using ClaudeBatchServer.Core.Models;
+using ClaudeBatchServer.Core.DTOs;
 
 namespace ClaudeBatchServer.Core.Services;
 
 public interface IRepositoryService
 {
     Task<List<Repository>> GetRepositoriesAsync();
+    Task<List<RepositoryResponse>> GetRepositoriesWithMetadataAsync();
     Task<Repository?> GetRepositoryAsync(string name);
     Task<Repository> RegisterRepositoryAsync(string name, string gitUrl, string description = "");
     Task<bool> UnregisterRepositoryAsync(string name);

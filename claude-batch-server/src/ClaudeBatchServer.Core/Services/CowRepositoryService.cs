@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ClaudeBatchServer.Core.Models;
+using ClaudeBatchServer.Core.DTOs;
 
 namespace ClaudeBatchServer.Core.Services;
 
@@ -10,14 +11,16 @@ public class CowRepositoryService : IRepositoryService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<CowRepositoryService> _logger;
+    private readonly IGitMetadataService _gitMetadataService;
     private readonly string _repositoriesPath;
     private readonly string _workspacePath;
     private CowMethod _cowMethod = CowMethod.Unsupported;
 
-    public CowRepositoryService(IConfiguration configuration, ILogger<CowRepositoryService> logger)
+    public CowRepositoryService(IConfiguration configuration, ILogger<CowRepositoryService> logger, IGitMetadataService gitMetadataService)
     {
         _configuration = configuration;
         _logger = logger;
+        _gitMetadataService = gitMetadataService;
         _repositoriesPath = _configuration["Workspace:RepositoriesPath"] ?? "/workspace/repos";
         _workspacePath = _configuration["Workspace:JobsPath"] ?? "/workspace/jobs";
         
@@ -74,6 +77,95 @@ public class CowRepositoryService : IRepositoryService
         }
 
         return repositories;
+    }
+
+    public async Task<List<RepositoryResponse>> GetRepositoriesWithMetadataAsync()
+    {
+        var repositories = new List<RepositoryResponse>();
+        
+        if (!Directory.Exists(_repositoriesPath))
+        {
+            Directory.CreateDirectory(_repositoriesPath);
+            return repositories;
+        }
+
+        var directories = Directory.GetDirectories(_repositoriesPath);
+        
+        foreach (var dir in directories)
+        {
+            var name = Path.GetFileName(dir);
+            var directoryInfo = new DirectoryInfo(dir);
+            var isGitRepo = await _gitMetadataService.IsGitRepositoryAsync(dir);
+            
+            var repository = new RepositoryResponse
+            {
+                Name = name,
+                Path = dir,
+                Type = isGitRepo ? "git" : "folder",
+                Size = await _gitMetadataService.CalculateFolderSizeAsync(dir),
+                LastModified = directoryInfo.LastWriteTime
+            };
+
+            // Load settings if they exist
+            var settingsPath = Path.Combine(dir, ".claude-batch-settings.json");
+            if (File.Exists(settingsPath))
+            {
+                try
+                {
+                    var settingsJson = await File.ReadAllTextAsync(settingsPath);
+                    var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                    
+                    if (settings != null)
+                    {
+                        if (settings.TryGetValue("Description", out var desc) && desc != null)
+                            repository.Description = desc.ToString();
+                        if (settings.TryGetValue("GitUrl", out var gitUrl) && gitUrl != null)
+                            repository.GitUrl = gitUrl.ToString();
+                        if (settings.TryGetValue("RegisteredAt", out var regAt) && regAt != null && DateTime.TryParse(regAt.ToString(), out var registeredAt))
+                            repository.RegisteredAt = registeredAt;
+                        if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
+                            repository.CloneStatus = cloneStatus.ToString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to read repository settings for {Repository}: {Error}", name, ex.Message);
+                }
+            }
+
+            // If it's a Git repository, extract Git metadata
+            if (isGitRepo)
+            {
+                var gitMetadata = await _gitMetadataService.GetGitMetadataAsync(dir);
+                if (gitMetadata != null)
+                {
+                    repository.RemoteUrl = gitMetadata.RemoteUrl;
+                    repository.CurrentBranch = gitMetadata.CurrentBranch;
+                    repository.CommitHash = gitMetadata.CommitHash;
+                    repository.CommitMessage = gitMetadata.CommitMessage;
+                    repository.CommitAuthor = gitMetadata.CommitAuthor;
+                    repository.CommitDate = gitMetadata.CommitDate;
+                    repository.HasUncommittedChanges = gitMetadata.HasUncommittedChanges;
+                    repository.AheadBehind = gitMetadata.AheadBehind;
+                    
+                    // Set last pull status based on what we can determine
+                    if (repository.RegisteredAt.HasValue)
+                    {
+                        repository.LastPull = repository.RegisteredAt;
+                        repository.LastPullStatus = repository.CloneStatus == "completed" ? "success" : 
+                                                  repository.CloneStatus == "failed" ? "failed" : "never";
+                    }
+                    else
+                    {
+                        repository.LastPullStatus = "unknown";
+                    }
+                }
+            }
+
+            repositories.Add(repository);
+        }
+
+        return repositories.OrderBy(r => r.Name).ToList();
     }
 
     public async Task<Repository?> GetRepositoryAsync(string name)

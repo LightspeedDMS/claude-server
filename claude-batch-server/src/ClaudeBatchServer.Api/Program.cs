@@ -68,6 +68,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<IAuthenticationService, ShadowFileAuthenticationService>();
+builder.Services.AddSingleton<IGitMetadataService, GitMetadataService>();
 builder.Services.AddSingleton<IRepositoryService, CowRepositoryService>();
 builder.Services.AddSingleton<IJobService, JobService>();
 builder.Services.AddSingleton<IClaudeCodeExecutor, ClaudeCodeExecutor>();

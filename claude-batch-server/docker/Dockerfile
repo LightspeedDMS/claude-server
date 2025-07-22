@@ -43,8 +43,8 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Set up proper permissions
-RUN chmod +x /app/ClaudeBatchServer.Api
+# Set up proper permissions for the app directory
+RUN chmod -R 755 /app
 
 # Create a non-root user for better security (service will still run as root for user impersonation)
 RUN useradd -m -s /bin/bash claude-batch && \

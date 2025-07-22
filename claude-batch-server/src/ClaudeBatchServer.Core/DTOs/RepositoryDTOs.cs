@@ -4,10 +4,31 @@ public class RepositoryResponse
 {
     public string Name { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public string GitUrl { get; set; } = string.Empty;
-    public DateTime RegisteredAt { get; set; }
-    public string CloneStatus { get; set; } = "unknown";
+    public string Type { get; set; } = string.Empty; // "git" or "folder"
+    public long Size { get; set; }
+    public DateTime LastModified { get; set; }
+    
+    // Git-specific properties (null for regular folders)
+    public string? GitUrl { get; set; }
+    public string? Description { get; set; }
+    public DateTime? RegisteredAt { get; set; }
+    public DateTime? LastPull { get; set; }
+    public string? LastPullStatus { get; set; } // "success", "failed", "never"
+    public string? RemoteUrl { get; set; }
+    public string? CurrentBranch { get; set; }
+    public string? CommitHash { get; set; }
+    public string? CommitMessage { get; set; }
+    public string? CommitAuthor { get; set; }
+    public DateTime? CommitDate { get; set; }
+    public bool? HasUncommittedChanges { get; set; }
+    public AheadBehindStatus? AheadBehind { get; set; }
+    public string? CloneStatus { get; set; } = "unknown";
+}
+
+public class AheadBehindStatus
+{
+    public int Ahead { get; set; }
+    public int Behind { get; set; }
 }
 
 public class RegisterRepositoryRequest

@@ -116,7 +116,30 @@ GET /jobs
 ```
 GET /repositories
 - Headers: Authorization: Bearer <token>
-- Response: [{ "name": "repo-name", "path": "/repos/repo-name", "description": "string", "gitUrl": "string", "registeredAt": "datetime" }]
+- Response: [
+    {
+      "name": "repo-name",
+      "path": "/repos/repo-name", 
+      "type": "git|folder",
+      "size": 1048576,
+      "lastModified": "2024-01-15T10:30:00Z",
+      // Git repositories only
+      "gitUrl": "https://github.com/user/repo.git",
+      "description": "optional description",
+      "registeredAt": "2024-01-01T12:00:00Z",
+      "lastPull": "2024-01-15T10:30:00Z",
+      "lastPullStatus": "success|failed|never",
+      "remoteUrl": "https://github.com/user/repo.git",
+      "currentBranch": "main",
+      "commitHash": "abc123def456",
+      "commitMessage": "Latest commit message",
+      "commitAuthor": "John Doe",
+      "commitDate": "2024-01-15T10:25:00Z",
+      "hasUncommittedChanges": false,
+      "aheadBehind": { "ahead": 0, "behind": 2 }
+    }
+  ]
+- Description: Lists all folders in /workspace/repos/. For git repositories, includes full metadata. For regular folders, includes basic folder information.
 
 POST /repositories/register
 - Headers: Authorization: Bearer <token>
@@ -152,7 +175,91 @@ GET /admin/sessions
 - Response: [{ "sessionId": "uuid", "user": "username", "status": "string", "started": "datetime", "command": "string" }]
 ```
 
-#### 2.3 Copy-on-Write Repository Management
+#### 2.3 Enhanced Repository Management with Metadata Collection
+
+**Repository Discovery and Metadata**: The `/repositories` API scans `/workspace/repos/` and provides comprehensive metadata for all folders
+
+**Metadata Collection Strategy**:
+- **Git Repository Detection**: Check for `.git` directory presence
+- **Git Metadata Extraction**: Use `git` commands to extract repository information
+- **Folder Size Calculation**: Recursive size calculation including hidden files (.git)
+- **Last Modified Tracking**: Filesystem modification time for folders
+- **Git Status Analysis**: Detect uncommitted changes and branch status
+
+**Git Metadata Implementation**:
+```csharp
+public class GitRepositoryService
+{
+    public async Task<GitMetadata> GetGitMetadata(string repoPath)
+    {
+        // Execute git commands to extract metadata
+        var remoteUrl = await ExecuteGitCommand(repoPath, "git config --get remote.origin.url");
+        var currentBranch = await ExecuteGitCommand(repoPath, "git branch --show-current");
+        var commitHash = await ExecuteGitCommand(repoPath, "git rev-parse HEAD");
+        var commitMessage = await ExecuteGitCommand(repoPath, "git log -1 --pretty=format:%s");
+        var commitAuthor = await ExecuteGitCommand(repoPath, "git log -1 --pretty=format:%an");
+        var commitDate = await ExecuteGitCommand(repoPath, "git log -1 --pretty=format:%ai");
+        
+        // Check for uncommitted changes
+        var statusOutput = await ExecuteGitCommand(repoPath, "git status --porcelain");
+        var hasUncommittedChanges = !string.IsNullOrWhiteSpace(statusOutput);
+        
+        // Check ahead/behind status
+        var aheadBehind = await GetAheadBehindStatus(repoPath, currentBranch);
+        
+        return new GitMetadata
+        {
+            RemoteUrl = remoteUrl,
+            CurrentBranch = currentBranch,
+            CommitHash = commitHash,
+            CommitMessage = commitMessage,
+            CommitAuthor = commitAuthor,
+            CommitDate = DateTime.Parse(commitDate),
+            HasUncommittedChanges = hasUncommittedChanges,
+            AheadBehind = aheadBehind
+        };
+    }
+    
+    private async Task<FolderSize> CalculateFolderSize(string folderPath)
+    {
+        // Recursive calculation including .git directories
+        // Use DirectoryInfo.EnumerateFiles() with recursive option
+        // Handle permissions and access errors gracefully
+    }
+}
+
+public class RepositoryInfo
+{
+    public string Name { get; set; }
+    public string Path { get; set; }
+    public string Type { get; set; } // "git" or "folder"
+    public long Size { get; set; }
+    public DateTime LastModified { get; set; }
+    
+    // Git-specific properties (null for regular folders)
+    public string GitUrl { get; set; }
+    public string Description { get; set; }
+    public DateTime? RegisteredAt { get; set; }
+    public DateTime? LastPull { get; set; }
+    public string LastPullStatus { get; set; } // "success", "failed", "never"
+    public string RemoteUrl { get; set; }
+    public string CurrentBranch { get; set; }
+    public string CommitHash { get; set; }
+    public string CommitMessage { get; set; }
+    public string CommitAuthor { get; set; }
+    public DateTime? CommitDate { get; set; }
+    public bool HasUncommittedChanges { get; set; }
+    public AheadBehindStatus AheadBehind { get; set; }
+}
+
+public class AheadBehindStatus
+{
+    public int Ahead { get; set; }
+    public int Behind { get; set; }
+}
+```
+
+#### 2.4 Copy-on-Write Repository Management
 
 **Critical Architecture**: Each job operates on a CoW clone of the source repository
 
@@ -649,6 +756,7 @@ E2E_CLEANUP_ENABLED=true
 - [x] **E2E tests for complete job workflow (create → upload → start → monitor → download)** - ✅ Complete with comprehensive Fibonacci app generation test
 - [x] **Unit tests for automatic job cleanup with timeouts** - ✅ Complete with configurable timeout handling
 - [x] **Comprehensive logging and error handling with tests** - ✅ Complete with Serilog structured logging
+- [x] **HTTPS support with nginx SSL termination** - ✅ Complete with secure proxy configuration (requires certificates)
 
 ### ✅ **Current System Status - PRODUCTION READY**
 
@@ -660,6 +768,7 @@ E2E_CLEANUP_ENABLED=true
 - **Copy-on-Write**: Repository cloning with fallback support
 - **Queue System**: Configurable concurrency with singleton pattern
 - **API Endpoints**: Complete REST API with file operations
+- **HTTPS Support**: Nginx reverse proxy with SSL termination (certificates needed)
 - **Security**: Input validation, path sanitization, JWT validation
 - **Testing**: Comprehensive unit, integration, and E2E test coverage
 
@@ -686,6 +795,15 @@ E2E_CLEANUP_ENABLED=true
 5. **Dynamic Agent Count**: Smart agent allocation based on task complexity or CLI arguments
 
 ### Phase 2: Git + Cidx Integration + Production Features
+- [x] **Enhanced Repository Management API**
+  - [x] Implement comprehensive repository metadata collection
+  - [x] Add git repository detection and metadata extraction
+  - [x] Implement folder size calculation (including .git directories)
+  - [x] Add git status checking (uncommitted changes, ahead/behind)
+  - [x] Add last pull tracking with success/failure status
+  - [x] Unit tests for git metadata extraction logic
+  - [x] Integration tests for repository scanning with mixed git/folder content
+  - [x] E2E test with real git repository metadata validation
 - [ ] **Git Integration with Automatic Updates**
   - [ ] Add `gitAware` parameter to create job API (default: true)
   - [ ] Pre-execution git pull validation and execution
@@ -727,7 +845,8 @@ E2E_CLEANUP_ENABLED=true
 - [ ] **Production Ready Features**
   - [ ] PAM integration for enterprise authentication
   - [ ] LDAP/Active Directory support
-  - [ ] HTTPS with proper certificate management
+  - [x] **HTTPS with nginx SSL termination** - ✅ Complete (requires SSL certificates - see HTTPS-SETUP.md)
+  - [ ] Automated certificate management (Let's Encrypt integration)
   - [ ] Job persistence across service restarts
   - [ ] Comprehensive error handling and recovery
   - [ ] Performance monitoring and metrics

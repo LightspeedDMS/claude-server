@@ -173,6 +173,63 @@ install_claude_cli() {
     fi
 }
 
+# Install Python and pipx
+install_pipx() {
+    log "Installing Python and pipx..."
+    
+    case "$OS_ID" in
+        "rocky"|"rhel"|"centos")
+            # Install Python 3 and pip
+            dnf install -y python3 python3-pip python3-venv
+            
+            # Install pipx using pip
+            python3 -m pip install --user pipx
+            python3 -m pipx ensurepath
+            ;;
+        "ubuntu")
+            # Install Python 3 and pipx
+            apt-get update
+            apt-get install -y python3 python3-pip python3-venv pipx
+            
+            # Ensure pipx is in PATH
+            pipx ensurepath
+            ;;
+        *)
+            error "Unsupported OS for pipx installation: $OS_ID"
+            exit 1
+            ;;
+    esac
+    
+    # Add pipx to current session PATH
+    export PATH="$HOME/.local/bin:$PATH"
+    
+    # Verify installation
+    if command -v pipx >/dev/null 2>&1; then
+        log "pipx installed successfully: $(pipx --version)"
+    else
+        error "Failed to install pipx"
+        exit 1
+    fi
+}
+
+# Install Code Indexer (cidx)
+install_code_indexer() {
+    log "Installing Code Indexer (cidx)..."
+    
+    # Install code-indexer using pipx with force flag to update if already installed
+    if pipx install --force git+https://github.com/jsbattig/code-indexer.git; then
+        log "Code Indexer installed successfully"
+        
+        # Create symlink for system-wide access
+        if [[ -f "$HOME/.local/bin/cidx" ]]; then
+            ln -sf "$HOME/.local/bin/cidx" /usr/local/bin/cidx
+            log "Created system-wide symlink for cidx"
+        fi
+    else
+        warn "Code Indexer installation may have failed, but continuing..."
+    fi
+}
+
 # Configure Copy-on-Write support
 configure_cow() {
     log "Configuring Copy-on-Write filesystem support..."
@@ -354,6 +411,18 @@ validate_installation() {
         warn "Claude Code CLI not found (optional)"
     fi
     
+    # Check pipx (optional)
+    if ! command -v pipx >/dev/null 2>&1; then
+        warn "pipx not found (optional)"
+    fi
+    
+    # Check code indexer (optional)
+    if ! command -v cidx >/dev/null 2>&1; then
+        warn "Code Indexer (cidx) not found (optional)"
+    else
+        log "Code Indexer (cidx) found: $(cidx --version 2>/dev/null || echo 'version unknown')"
+    fi
+    
     # Check workspace directories
     if [[ ! -d /workspace/repos ]]; then
         error "Workspace repositories directory not found"
@@ -423,6 +492,7 @@ ${YELLOW}API will be available at:${NC}
 ${YELLOW}Documentation:${NC}
 - Swagger UI: http://localhost:5000/swagger (when running)
 - Logs: /var/log/claude-batch-server/ or docker logs
+- Code Indexer: Run 'cidx --help' for semantic code search options
 
 EOF
 }
@@ -440,6 +510,8 @@ main() {
     install_dotnet
     install_docker
     install_claude_cli
+    install_pipx
+    install_code_indexer
     configure_cow
     setup_logging
     build_and_deploy
