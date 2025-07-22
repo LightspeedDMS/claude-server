@@ -1,0 +1,12 @@
+CIDX SEMANTIC SEARCH UNAVAILABLE
+
+Cidx services are not ready. Use traditional search tools for code exploration.
+
+CURRENT STATUS: {cidxStatus}
+
+USE TRADITIONAL TOOLS:
+- grep -r "pattern" .
+- find . -name "*.ext" -exec grep "pattern" {} \;
+- rg "pattern" --type language
+
+Check cidx status periodically with: cidx status

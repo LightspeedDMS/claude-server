@@ -1,0 +1,21 @@
+CIDX SEMANTIC SEARCH AVAILABLE
+
+Your primary code exploration tool is cidx (semantic search). Always prefer cidx over grep/find/rg when available.
+
+CURRENT STATUS: {cidxStatus}
+
+USAGE PRIORITY:
+1. FIRST: Check cidx status with: cidx status
+2. IF all services show "Running/Ready/Not needed/Ready": Use cidx for all code searches
+3. IF any service shows failures: Fall back to grep/find/rg
+
+CIDX EXAMPLES:
+- Find authentication: cidx query "authentication function" --quiet
+- Find error handling: cidx query "error handling patterns" --language python --quiet
+- Find database code: cidx query "database connection" --path */services/* --quiet
+
+TRADITIONAL FALLBACK:
+- Use grep/find/rg only when cidx status shows service failures
+- Example: grep -r "function" . (when cidx unavailable)
+
+Remember: cidx understands intent and context, not just literal text matches.

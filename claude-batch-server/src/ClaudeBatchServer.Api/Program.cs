@@ -33,6 +33,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = false,
             ValidateAudience = false,
             ClockSkew = TimeSpan.Zero,
+            RequireExpirationTime = false, // Allow tokens without explicit expiration for debugging
             NameClaimType = "unique_name" // Map the JWT unique_name claim to Identity.Name
         };
         

@@ -290,6 +290,12 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         };
         
         var token = tokenHandler.CreateToken(tokenDescriptor);
-        return tokenHandler.WriteToken(token);
+        var tokenString = tokenHandler.WriteToken(token);
+        
+        // Log JWT details for debugging
+        System.Console.WriteLine($"Generated JWT with key: {_jwtKey} (length: {_jwtKey.Length})");
+        System.Console.WriteLine($"Token: {tokenString}");
+        
+        return tokenString;
     }
 }

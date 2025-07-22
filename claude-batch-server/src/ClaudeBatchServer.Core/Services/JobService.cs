@@ -52,7 +52,9 @@ public class JobService : IJobService
             Options = new JobOptions 
             { 
                 TimeoutSeconds = request.Options.Timeout,
-                AutoCleanup = true
+                AutoCleanup = true,
+                GitAware = request.Options.GitAware,
+                CidxAware = request.Options.CidxAware
             },
             CreatedAt = DateTime.UtcNow
         };
@@ -118,7 +120,9 @@ public class JobService : IJobService
             QueuePosition = job.QueuePosition,
             CreatedAt = job.CreatedAt,
             StartedAt = job.StartedAt,
-            CompletedAt = job.CompletedAt
+            CompletedAt = job.CompletedAt,
+            GitStatus = job.GitStatus,
+            CidxStatus = job.CidxStatus
         });
     }
 
@@ -263,12 +267,24 @@ public class JobService : IJobService
             job.CompletedAt = DateTime.UtcNow;
 
             _logger.LogInformation("Completed job {JobId} with exit code {ExitCode}", job.Id, exitCode);
+
+            // Cleanup cidx if it was enabled for this job
+            if (job.Options.CidxAware && job.CidxStatus == "ready")
+            {
+                await CleanupCidxAsync(job);
+            }
         }
         catch (OperationCanceledException)
         {
             job.Status = JobStatus.Timeout;
             job.CompletedAt = DateTime.UtcNow;
             _logger.LogWarning("Job {JobId} timed out", job.Id);
+
+            // Cleanup cidx if it was enabled for this job
+            if (job.Options.CidxAware)
+            {
+                await CleanupCidxAsync(job);
+            }
         }
         catch (Exception ex)
         {
@@ -276,6 +292,50 @@ public class JobService : IJobService
             job.Output = $"Execution error: {ex.Message}";
             job.CompletedAt = DateTime.UtcNow;
             _logger.LogError(ex, "Job {JobId} failed with exception", job.Id);
+
+            // Cleanup cidx if it was enabled for this job
+            if (job.Options.CidxAware)
+            {
+                await CleanupCidxAsync(job);
+            }
+        }
+    }
+
+    private async Task CleanupCidxAsync(Job job)
+    {
+        try
+        {
+            _logger.LogInformation("Cleaning up cidx container for job {JobId}", job.Id);
+            
+            var processInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cidx",
+                Arguments = "stop",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = job.CowPath
+            };
+
+            using var process = new System.Diagnostics.Process { StartInfo = processInfo };
+            process.Start();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                job.CidxStatus = "stopped";
+                _logger.LogInformation("Successfully stopped cidx container for job {JobId}", job.Id);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to stop cidx container for job {JobId} with exit code {ExitCode}", 
+                    job.Id, process.ExitCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning up cidx container for job {JobId}", job.Id);
         }
     }
 
@@ -288,6 +348,13 @@ public class JobService : IJobService
         foreach (var job in expiredJobs)
         {
             _logger.LogInformation("Cleaning up expired job {JobId}", job.Id);
+            
+            // Cleanup cidx if it was enabled for this job
+            if (job.Options.CidxAware && job.CidxStatus == "ready")
+            {
+                await CleanupCidxAsync(job);
+            }
+            
             await _repositoryService.RemoveCowCloneAsync(job.CowPath);
             _jobs.TryRemove(job.Id, out _);
         }

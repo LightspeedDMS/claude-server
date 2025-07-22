@@ -82,6 +82,149 @@ public class CowRepositoryService : IRepositoryService
         return repositories.FirstOrDefault(r => r.Name == name);
     }
 
+    public async Task<Repository> RegisterRepositoryAsync(string name, string gitUrl, string description = "")
+    {
+        _logger.LogInformation("Registering repository {Name} from {GitUrl}", name, gitUrl);
+
+        // Validate input
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Repository name cannot be empty", nameof(name));
+        if (string.IsNullOrWhiteSpace(gitUrl))
+            throw new ArgumentException("Git URL cannot be empty", nameof(gitUrl));
+
+        // Check if repository already exists
+        var existing = await GetRepositoryAsync(name);
+        if (existing != null)
+            throw new InvalidOperationException($"Repository '{name}' already exists");
+
+        var repositoryPath = Path.Combine(_repositoriesPath, name);
+        
+        // Ensure repositories directory exists
+        Directory.CreateDirectory(_repositoriesPath);
+
+        var repository = new Repository
+        {
+            Name = name,
+            Path = repositoryPath,
+            Description = description,
+            GitUrl = gitUrl,
+            RegisteredAt = DateTime.UtcNow,
+            CloneStatus = "cloning"
+        };
+
+        try
+        {
+            // Clone the repository
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = $"clone \"{gitUrl}\" \"{repositoryPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = processInfo };
+            process.Start();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                repository.CloneStatus = "completed";
+                _logger.LogInformation("Successfully cloned repository {Name} to {Path}", name, repositoryPath);
+
+                // Create .claude-batch-settings.json file
+                var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
+                var settings = new
+                {
+                    Name = name,
+                    Description = description,
+                    GitUrl = gitUrl,
+                    RegisteredAt = repository.RegisteredAt,
+                    CloneStatus = repository.CloneStatus
+                };
+                
+                await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
+                { 
+                    WriteIndented = true 
+                }));
+            }
+            else
+            {
+                repository.CloneStatus = "failed";
+                var error = await process.StandardError.ReadToEndAsync();
+                _logger.LogError("Failed to clone repository {Name}: {Error}", name, error);
+                
+                // Clean up failed clone directory if it exists
+                if (Directory.Exists(repositoryPath))
+                {
+                    Directory.Delete(repositoryPath, true);
+                }
+                
+                throw new InvalidOperationException($"Failed to clone repository: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            repository.CloneStatus = "failed";
+            _logger.LogError(ex, "Error cloning repository {Name}", name);
+            
+            // Clean up on failure
+            if (Directory.Exists(repositoryPath))
+            {
+                try
+                {
+                    Directory.Delete(repositoryPath, true);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Failed to cleanup failed repository clone at {Path}", repositoryPath);
+                }
+            }
+            
+            throw;
+        }
+
+        return repository;
+    }
+
+    public async Task<bool> UnregisterRepositoryAsync(string name)
+    {
+        _logger.LogInformation("Unregistering repository {Name}", name);
+
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Repository name cannot be empty", nameof(name));
+
+        var repository = await GetRepositoryAsync(name);
+        if (repository == null)
+        {
+            _logger.LogWarning("Repository {Name} not found for unregistration", name);
+            return false;
+        }
+
+        try
+        {
+            // Remove the repository directory and all its contents
+            if (Directory.Exists(repository.Path))
+            {
+                Directory.Delete(repository.Path, true);
+                _logger.LogInformation("Successfully removed repository {Name} from disk at {Path}", name, repository.Path);
+            }
+            else
+            {
+                _logger.LogWarning("Repository {Name} directory not found at {Path}, but considering unregistration successful", name, repository.Path);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to unregister repository {Name} at {Path}", name, repository.Path);
+            throw new InvalidOperationException($"Failed to remove repository '{name}': {ex.Message}", ex);
+        }
+    }
+
     public async Task<string> CreateCowCloneAsync(string repositoryName, Guid jobId)
     {
         var repository = await GetRepositoryAsync(repositoryName);

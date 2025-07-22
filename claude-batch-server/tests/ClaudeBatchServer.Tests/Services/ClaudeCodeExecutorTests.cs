@@ -33,7 +33,12 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Options = new JobOptions { TimeoutSeconds = 30 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 30,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -60,7 +65,12 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Options = new JobOptions { TimeoutSeconds = 10 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 10,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
@@ -95,7 +105,12 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Options = new JobOptions { TimeoutSeconds = 5 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 5,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -116,7 +131,12 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Options = new JobOptions { TimeoutSeconds = 5 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 5,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -135,7 +155,12 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Options = new JobOptions { TimeoutSeconds = 5 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 5,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -160,7 +185,12 @@ public class ClaudeCodeExecutorTests
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
             Images = new List<string> { "image1.png", "image2.jpg" },
-            Options = new JobOptions { TimeoutSeconds = 5 }
+            Options = new JobOptions 
+            { 
+                TimeoutSeconds = 5,
+                GitAware = false,
+                CidxAware = false
+            }
         };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

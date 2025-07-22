@@ -5,6 +5,33 @@ public class RepositoryResponse
     public string Name { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string GitUrl { get; set; } = string.Empty;
+    public DateTime RegisteredAt { get; set; }
+    public string CloneStatus { get; set; } = "unknown";
+}
+
+public class RegisterRepositoryRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string GitUrl { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+public class RegisterRepositoryResponse
+{
+    public string Name { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string GitUrl { get; set; } = string.Empty;
+    public DateTime RegisteredAt { get; set; }
+    public string CloneStatus { get; set; } = "cloning";
+}
+
+public class UnregisterRepositoryResponse
+{
+    public bool Success { get; set; } = true;
+    public bool Removed { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class FileInfoResponse

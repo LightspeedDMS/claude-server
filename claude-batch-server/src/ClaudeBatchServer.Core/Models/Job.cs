@@ -16,12 +16,18 @@ public class Job
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public JobOptions Options { get; set; } = new();
+    public string GitStatus { get; set; } = "not_checked";
+    public string CidxStatus { get; set; } = "not_started";
 }
 
 public enum JobStatus
 {
     Created,
     Queued,
+    GitPulling,
+    GitFailed,
+    CidxIndexing,
+    CidxReady,
     Running,
     Completed,
     Failed,
@@ -33,5 +39,7 @@ public class JobOptions
 {
     public int TimeoutSeconds { get; set; } = 300;
     public bool AutoCleanup { get; set; } = true;
+    public bool GitAware { get; set; } = true;
+    public bool CidxAware { get; set; } = true;
     public Dictionary<string, string> Environment { get; set; } = new();
 }

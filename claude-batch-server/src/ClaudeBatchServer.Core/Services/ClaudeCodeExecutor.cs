@@ -31,7 +31,37 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             if (userInfo == null)
                 throw new InvalidOperationException($"User '{username}' not found");
 
-            var claudeArgs = BuildClaudeArguments(job);
+            // Handle git operations if gitAware is enabled
+            if (job.Options.GitAware)
+            {
+                var gitResult = await HandleGitOperationsAsync(job, userInfo, cancellationToken);
+                if (!gitResult.Success)
+                {
+                    job.Status = JobStatus.GitFailed;
+                    job.GitStatus = gitResult.Status;
+                    return (-1, gitResult.ErrorMessage);
+                }
+                job.GitStatus = gitResult.Status;
+            }
+
+            // Handle cidx operations if cidxAware is enabled
+            if (job.Options.CidxAware)
+            {
+                var cidxResult = await HandleCidxOperationsAsync(job, userInfo, cancellationToken);
+                if (!cidxResult.Success)
+                {
+                    job.CidxStatus = cidxResult.Status;
+                    _logger.LogWarning("Cidx operations failed for job {JobId}: {Error}", job.Id, cidxResult.ErrorMessage);
+                    // Don't fail the job for cidx issues, just continue without it
+                }
+                else
+                {
+                    job.Status = JobStatus.CidxReady;
+                    job.CidxStatus = cidxResult.Status;
+                }
+            }
+
+            var claudeArgs = await BuildClaudeArgumentsAsync(job);
             var environment = BuildEnvironment(job, userInfo);
 
             var processInfo = new ProcessStartInfo
@@ -113,7 +143,7 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         }
     }
 
-    private string BuildClaudeArguments(Job job)
+    private async Task<string> BuildClaudeArgumentsAsync(Job job)
     {
         var args = new List<string>();
 
@@ -127,6 +157,13 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
         // Note: Claude CLI doesn't support --timeout option
         // Timeout should be handled by the job service itself
+
+        // Add cidx-aware system prompt if cidx is enabled and ready
+        if (job.Options.CidxAware && IsCidxReady(job.CowPath))
+        {
+            var systemPrompt = await GenerateCidxSystemPromptAsync(job.CowPath);
+            args.Add($"--append-system-prompt \"{systemPrompt}\"");
+        }
 
         return string.Join(" ", args);
     }
@@ -207,6 +244,296 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         {
             _logger.LogError(ex, "Failed to set up user impersonation for {Username}", userInfo.Username);
             throw;
+        }
+    }
+
+    private async Task<(bool Success, string Status, string ErrorMessage)> HandleGitOperationsAsync(Job job, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Starting git operations for job {JobId}", job.Id);
+            job.Status = JobStatus.GitPulling;
+            job.GitStatus = "checking";
+
+            // Check if directory is a git repository
+            var gitDir = Path.Combine(job.CowPath, ".git");
+            if (!Directory.Exists(gitDir))
+            {
+                _logger.LogInformation("Job {JobId} workspace is not a git repository, skipping git operations", job.Id);
+                return (true, "not_git_repo", string.Empty);
+            }
+
+            // Execute git pull
+            var gitPullResult = await ExecuteGitCommandAsync("pull", job.CowPath, userInfo, cancellationToken);
+            
+            if (gitPullResult.ExitCode == 0)
+            {
+                _logger.LogInformation("Git pull successful for job {JobId}", job.Id);
+                return (true, "pulled", string.Empty);
+            }
+            else
+            {
+                _logger.LogError("Git pull failed for job {JobId} with exit code {ExitCode}: {Output}", 
+                    job.Id, gitPullResult.ExitCode, gitPullResult.Output);
+                return (false, "failed", $"Git pull failed: {gitPullResult.Output}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Git operations failed for job {JobId}", job.Id);
+            return (false, "failed", $"Git operations error: {ex.Message}");
+        }
+    }
+
+    private async Task<(bool Success, string Status, string ErrorMessage)> HandleCidxOperationsAsync(Job job, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Starting cidx operations for job {JobId}", job.Id);
+            job.Status = JobStatus.CidxIndexing;
+            job.CidxStatus = "starting";
+
+            // Start cidx container
+            var startResult = await ExecuteCidxCommandAsync("start", job.CowPath, userInfo, cancellationToken);
+            if (startResult.ExitCode != 0)
+            {
+                return (false, "failed", $"Cidx start failed: {startResult.Output}");
+            }
+
+            job.CidxStatus = "indexing";
+
+            // Run cidx index --reconcile
+            var indexResult = await ExecuteCidxCommandAsync("index --reconcile", job.CowPath, userInfo, cancellationToken);
+            if (indexResult.ExitCode != 0)
+            {
+                // Try to stop cidx if indexing failed
+                await ExecuteCidxCommandAsync("stop", job.CowPath, userInfo, CancellationToken.None);
+                return (false, "failed", $"Cidx indexing failed: {indexResult.Output}");
+            }
+
+            _logger.LogInformation("Cidx indexing successful for job {JobId}", job.Id);
+            return (true, "ready", string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cidx operations failed for job {JobId}", job.Id);
+            return (false, "failed", $"Cidx operations error: {ex.Message}");
+        }
+    }
+
+    private async Task<(int ExitCode, string Output)> ExecuteGitCommandAsync(string gitArgs, string workingDirectory, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = gitArgs,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory
+        };
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            ImpersonateUser(processInfo, userInfo);
+        }
+
+        using var process = new Process { StartInfo = processInfo };
+        var outputBuilder = new StringBuilder();
+        var errorBuilder = new StringBuilder();
+
+        process.OutputDataReceived += (sender, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+        process.ErrorDataReceived += (sender, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        await process.WaitForExitAsync(cancellationToken);
+
+        var output = outputBuilder.ToString();
+        var error = errorBuilder.ToString();
+        var combinedOutput = string.IsNullOrEmpty(error) ? output : $"{output}\n\nErrors:\n{error}";
+
+        return (process.ExitCode, combinedOutput);
+    }
+
+    private async Task<(int ExitCode, string Output)> ExecuteCidxCommandAsync(string cidxArgs, string workingDirectory, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = "cidx",
+            Arguments = cidxArgs,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory
+        };
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            ImpersonateUser(processInfo, userInfo);
+        }
+
+        using var process = new Process { StartInfo = processInfo };
+        var outputBuilder = new StringBuilder();
+        var errorBuilder = new StringBuilder();
+
+        process.OutputDataReceived += (sender, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+        process.ErrorDataReceived += (sender, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        await process.WaitForExitAsync(cancellationToken);
+
+        var output = outputBuilder.ToString();
+        var error = errorBuilder.ToString();
+        var combinedOutput = string.IsNullOrEmpty(error) ? output : $"{output}\n\nErrors:\n{error}";
+
+        return (process.ExitCode, combinedOutput);
+    }
+
+    private bool IsCidxReady(string workspacePath)
+    {
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "cidx",
+                Arguments = "status",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = workspacePath
+            };
+
+            using var process = new Process { StartInfo = processInfo };
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            // Check for healthy cidx status indicators
+            return process.ExitCode == 0 && 
+                   output.Contains("Running") && 
+                   (output.Contains("Ready") || output.Contains("Not needed"));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<string> GenerateCidxSystemPromptAsync(string workspacePath)
+    {
+        var cidxStatus = GetCidxStatus(workspacePath);
+        var isCidxReady = IsCidxReady(workspacePath);
+
+        string templatePath;
+        if (isCidxReady)
+        {
+            templatePath = _configuration["SystemPrompts:CidxAvailableTemplatePath"] ?? "SystemPrompts/cidx-system-prompt-template.txt";
+        }
+        else
+        {
+            templatePath = _configuration["SystemPrompts:CidxUnavailableTemplatePath"] ?? "SystemPrompts/cidx-unavailable-system-prompt-template.txt";
+        }
+
+        // Try to resolve the template path relative to the application base directory
+        var fullPath = Path.IsPathRooted(templatePath) ? templatePath : Path.Combine(AppContext.BaseDirectory, templatePath);
+        
+        try
+        {
+            if (File.Exists(fullPath))
+            {
+                var template = await File.ReadAllTextAsync(fullPath);
+                return template.Replace("{cidxStatus}", cidxStatus);
+            }
+            else
+            {
+                _logger.LogWarning("System prompt template not found at {Path}, using fallback", fullPath);
+                return GetFallbackSystemPrompt(isCidxReady, cidxStatus);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load system prompt template from {Path}, using fallback", fullPath);
+            return GetFallbackSystemPrompt(isCidxReady, cidxStatus);
+        }
+    }
+
+    private string GetFallbackSystemPrompt(bool isCidxReady, string cidxStatus)
+    {
+        if (isCidxReady)
+        {
+            return $@"CIDX SEMANTIC SEARCH AVAILABLE
+
+Your primary code exploration tool is cidx (semantic search). Always prefer cidx over grep/find/rg when available.
+
+CURRENT STATUS: {cidxStatus}
+
+USAGE PRIORITY:
+1. FIRST: Check cidx status with: cidx status
+2. IF all services show ""Running/Ready/Not needed/Ready"": Use cidx for all code searches
+3. IF any service shows failures: Fall back to grep/find/rg
+
+CIDX EXAMPLES:
+- Find authentication: cidx query ""authentication function"" --quiet
+- Find error handling: cidx query ""error handling patterns"" --language python --quiet
+- Find database code: cidx query ""database connection"" --path */services/* --quiet
+
+TRADITIONAL FALLBACK:
+- Use grep/find/rg only when cidx status shows service failures
+- Example: grep -r ""function"" . (when cidx unavailable)
+
+Remember: cidx understands intent and context, not just literal text matches.";
+        }
+        else
+        {
+            return $@"CIDX SEMANTIC SEARCH UNAVAILABLE
+
+Cidx services are not ready. Use traditional search tools for code exploration.
+
+CURRENT STATUS: {cidxStatus}
+
+USE TRADITIONAL TOOLS:
+- grep -r ""pattern"" .
+- find . -name ""*.ext"" -exec grep ""pattern"" {{}} \;
+- rg ""pattern"" --type language
+
+Check cidx status periodically with: cidx status";
+        }
+    }
+
+    private string GetCidxStatus(string workspacePath)
+    {
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "cidx",
+                Arguments = "status",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = workspacePath
+            };
+
+            using var process = new Process { StartInfo = processInfo };
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            return process.ExitCode == 0 ? output.Trim() : "Service unavailable";
+        }
+        catch
+        {
+            return "Service unavailable";
         }
     }
 

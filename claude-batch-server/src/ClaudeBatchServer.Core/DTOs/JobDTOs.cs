@@ -34,6 +34,8 @@ public class JobStatusResponse
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public string GitStatus { get; set; } = "not_checked";
+    public string CidxStatus { get; set; } = "not_started";
 }
 
 public class JobListResponse
@@ -55,6 +57,8 @@ public class DeleteJobResponse
 public class JobOptionsDto
 {
     public int Timeout { get; set; } = 300;
+    public bool GitAware { get; set; } = true;
+    public bool CidxAware { get; set; } = true;
 }
 
 public class ImageUploadResponse

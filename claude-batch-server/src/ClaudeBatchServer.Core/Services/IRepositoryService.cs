@@ -6,6 +6,8 @@ public interface IRepositoryService
 {
     Task<List<Repository>> GetRepositoriesAsync();
     Task<Repository?> GetRepositoryAsync(string name);
+    Task<Repository> RegisterRepositoryAsync(string name, string gitUrl, string description = "");
+    Task<bool> UnregisterRepositoryAsync(string name);
     Task<string> CreateCowCloneAsync(string repositoryName, Guid jobId);
     Task<bool> RemoveCowCloneAsync(string cowPath);
     Task<List<Models.FileInfo>> GetFilesAsync(string cowPath, string? subPath = null);
