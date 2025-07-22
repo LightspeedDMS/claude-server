@@ -166,20 +166,33 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
     [Fact]
     public async Task Security_AccessControl_ShouldPreventUnauthorizedAccess()
     {
-        var endpoints = new[]
+        // Test GET endpoints
+        var getEndpoints = new[]
         {
             "/jobs",
             "/repositories",
             $"/jobs/{Guid.NewGuid()}",
-            $"/jobs/{Guid.NewGuid()}/start",
             $"/jobs/{Guid.NewGuid()}/files"
         };
 
-        foreach (var endpoint in endpoints)
+        foreach (var endpoint in getEndpoints)
         {
             var response = await _client.GetAsync(endpoint);
             response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, 
-                $"Endpoint {endpoint} should require authentication");
+                $"GET endpoint {endpoint} should require authentication");
+        }
+
+        // Test POST endpoints
+        var postEndpoints = new[]
+        {
+            $"/jobs/{Guid.NewGuid()}/start"
+        };
+
+        foreach (var endpoint in postEndpoints)
+        {
+            var response = await _client.PostAsync(endpoint, null);
+            response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, 
+                $"POST endpoint {endpoint} should require authentication");
         }
     }
 

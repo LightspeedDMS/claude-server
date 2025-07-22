@@ -8,13 +8,14 @@ using ClaudeBatchServer.Core.Services;
 
 namespace ClaudeBatchServer.Tests.Services;
 
-public class JobServiceTests
+public class JobServiceTests : IDisposable
 {
     private readonly Mock<IRepositoryService> _mockRepositoryService;
     private readonly Mock<IClaudeCodeExecutor> _mockClaudeExecutor;
     private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly Mock<ILogger<JobService>> _mockLogger;
     private readonly JobService _jobService;
+    private readonly string _testWorkspaceRoot;
 
     public JobServiceTests()
     {
@@ -22,6 +23,10 @@ public class JobServiceTests
         _mockClaudeExecutor = new Mock<IClaudeCodeExecutor>();
         _mockConfiguration = new Mock<IConfiguration>();
         _mockLogger = new Mock<ILogger<JobService>>();
+
+        // Create a unique test workspace for this test run
+        _testWorkspaceRoot = Path.Combine(Path.GetTempPath(), "job-service-tests", Guid.NewGuid().ToString());
+        Directory.CreateDirectory(_testWorkspaceRoot);
 
         _mockConfiguration.Setup(c => c["Jobs:MaxConcurrent"]).Returns("5");
         _mockConfiguration.Setup(c => c["Jobs:TimeoutHours"]).Returns("24");
@@ -49,16 +54,17 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         var result = await _jobService.CreateJobAsync(request, "testuser");
 
         result.Should().NotBeNull();
         result.Status.Should().Be("created");
         result.User.Should().Be("testuser");
-        result.CowPath.Should().Be("/workspace/jobs/test-job-id");
+        result.CowPath.Should().Be(testJobPath);
     }
 
     [Fact]
@@ -94,9 +100,10 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         var startResult = await _jobService.StartJobAsync(createResult.JobId, "testuser");
@@ -131,9 +138,10 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
 
@@ -157,9 +165,10 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         var statusResult = await _jobService.GetJobStatusAsync(createResult.JobId, "testuser");
@@ -183,12 +192,13 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         _mockRepositoryService
-            .Setup(r => r.RemoveCowCloneAsync("/workspace/jobs/test-job-id"))
+            .Setup(r => r.RemoveCowCloneAsync(It.IsAny<string>()))
             .ReturnsAsync(true);
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
@@ -209,13 +219,17 @@ public class JobServiceTests
             Prompt = "Test prompt"
         };
 
+        // Create a test job directory that actually exists
+        var testJobPath = Path.Combine(_testWorkspaceRoot, "test-job-id");
+        Directory.CreateDirectory(testJobPath);
+
         _mockRepositoryService
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         
@@ -225,6 +239,11 @@ public class JobServiceTests
         uploadResult.Should().NotBeNull();
         uploadResult.Filename.Should().NotBeEmpty();
         uploadResult.Path.Should().Contain(createResult.JobId.ToString());
+        
+        // Verify the image file was actually created
+        var imagesPath = Path.Combine(testJobPath, "images");
+        Directory.Exists(imagesPath).Should().BeTrue();
+        Directory.GetFiles(imagesPath).Should().HaveCount(1);
     }
 
     [Fact]
@@ -241,9 +260,10 @@ public class JobServiceTests
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
-            .ReturnsAsync("/workspace/jobs/test-job-id");
+            .ReturnsAsync(testJobPath);
 
         await _jobService.CreateJobAsync(createRequest, "testuser");
         var userJobs = await _jobService.GetUserJobsAsync("testuser");
@@ -251,5 +271,18 @@ public class JobServiceTests
         userJobs.Should().NotBeNull();
         userJobs.Should().HaveCount(1);
         userJobs[0].User.Should().Be("testuser");
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_testWorkspaceRoot))
+                Directory.Delete(_testWorkspaceRoot, true);
+        }
+        catch
+        {
+            // Ignore cleanup errors in tests
+        }
     }
 }
