@@ -116,7 +116,18 @@ GET /jobs
 ```
 GET /repositories
 - Headers: Authorization: Bearer <token>
-- Response: [{ "name": "repo-name", "path": "/repos/repo-name", "description": "string" }]
+- Response: [{ "name": "repo-name", "path": "/repos/repo-name", "description": "string", "gitUrl": "string", "registeredAt": "datetime" }]
+
+POST /repositories/register
+- Headers: Authorization: Bearer <token>
+- Body: { "name": "repo-name", "gitUrl": "https://github.com/user/repo.git", "description": "optional description" }
+- Response: { "name": "repo-name", "path": "/repos/repo-name", "description": "string", "gitUrl": "string", "registeredAt": "datetime", "cloneStatus": "cloning|completed|failed" }
+- Description: Immediately clones the git repository to the workspace, making it available for jobs
+
+DELETE /repositories/{repoName}
+- Headers: Authorization: Bearer <token>
+- Response: { "success": true, "removed": true, "message": "Repository repo-name successfully unregistered and removed from disk" }
+- Description: Unregisters repository and removes all files from disk
 
 GET /jobs/{jobId}/files
 - Headers: Authorization: Bearer <token>
@@ -213,13 +224,234 @@ GET /admin/sessions
 1. **Container Start**: Execute `cidx start` in job workspace
 2. **Index Reconciliation**: Run `cidx index --reconcile` to build semantic index
 3. **Status Tracking**: Report "cidx_indexing" → "cidx_ready" status progression
-4. **Claude Execution**: Run Claude with cidx semantic search available
-5. **Automatic Cleanup**: Execute `cidx stop` immediately after Claude completes
+4. **System Prompt Generation**: Create dynamic Claude Code instruction based on cidx status
+5. **Claude Execution**: Run Claude with `--append-system-prompt` and cidx semantic search available
+6. **Automatic Cleanup**: Execute `cidx stop` immediately after Claude completes
+
+**Claude Code Integration via System Prompt**:
+- **Dynamic Prompt Generation**: Check actual cidx service status and generate appropriate instructions
+- **Service Status Validation**: Verify Docker Services, Voyage-AI Provider, Ollama, and Qdrant components
+- **Intelligent Tool Selection**: Teach Claude to prefer `cidx query` when services are healthy
+- **Graceful Fallback**: Instructions to use grep/find/rg when cidx is unavailable
+
+**System Prompt Design** (tested and validated):
+
+**Parameter Syntax**: `--append-system-prompt "prompt content"`
+- ✅ **Multi-line support**: CRLF characters work properly
+- ✅ **No escaping needed**: Standard double quotes are sufficient  
+- ✅ **Claude integration**: Content is accessible and acted upon by Claude
+
+**Cidx-Ready System Prompt**:
+```
+CIDX SEMANTIC SEARCH AVAILABLE
+
+Your primary code exploration tool is cidx (semantic search). Always prefer cidx over grep/find/rg when available.
+
+CURRENT STATUS: {CIDX_STATUS_PLACEHOLDER}
+
+USAGE PRIORITY:
+1. FIRST: Check cidx status with: cidx status
+2. IF all services show "Running/Ready/Not needed/Ready": Use cidx for all code searches
+3. IF any service shows failures: Fall back to grep/find/rg
+
+CIDX EXAMPLES:
+- Find authentication: cidx query "authentication function" --quiet
+- Find error handling: cidx query "error handling patterns" --language python --quiet
+- Find database code: cidx query "database connection" --path */services/* --quiet
+
+TRADITIONAL FALLBACK:
+- Use grep/find/rg only when cidx status shows service failures
+- Example: grep -r "function" . (when cidx unavailable)
+
+Remember: cidx understands intent and context, not just literal text matches.
+```
+
+**Cidx-Unavailable System Prompt**:
+```
+CIDX SEMANTIC SEARCH UNAVAILABLE
+
+Cidx services are not ready. Use traditional search tools for code exploration.
+
+CURRENT STATUS: {CIDX_STATUS_PLACEHOLDER}
+
+USE TRADITIONAL TOOLS:
+- grep -r "pattern" .
+- find . -name "*.ext" -exec grep "pattern" {} \;
+- rg "pattern" --type language
+
+Check cidx status periodically with: cidx status
+```
 
 **Configuration**:
 - **Embedding Provider**: Voyage-id for semantic embeddings
 - **Per-Job Isolation**: Each CoW workspace has independent cidx instance
 - **Resource Limits**: Configurable memory and CPU limits for cidx containers
+- **System Prompt Integration**: Dynamic `--append-system-prompt` based on actual service status
+
+**Implementation Details**:
+
+```csharp
+// ClaudeCodeExecutor enhancement for cidx integration
+private string BuildClaudeArguments(Job job)
+{
+    var args = new List<string>();
+
+    foreach (var image in job.Images)
+    {
+        var imagePath = Path.Combine(job.CowPath, "images", image);
+        args.Add($"--image \"{imagePath}\"");
+    }
+
+    // Add cidx-aware system prompt if cidx is enabled and ready
+    if (job.Options.CidxAware && IsCidxReady(job.CowPath))
+    {
+        var systemPrompt = GenerateCidxSystemPrompt(job.CowPath);
+        args.Add($"--append-system-prompt \"{systemPrompt}\"");
+    }
+
+    return string.Join(" ", args);
+}
+
+private bool IsCidxReady(string workspacePath)
+{
+    // Execute 'cidx status' and check for "Running/Ready/Not needed/Ready" pattern
+    // Return true if all required services are healthy
+}
+
+private string GenerateCidxSystemPrompt(string workspacePath)
+{
+    var cidxStatus = GetCidxStatus(workspacePath);
+    var isCidxReady = IsCidxReady(workspacePath);
+    
+    if (isCidxReady)
+    {
+        return $@"CIDX SEMANTIC SEARCH AVAILABLE
+
+Your primary code exploration tool is cidx (semantic search). Always prefer cidx over grep/find/rg when available.
+
+CURRENT STATUS: {cidxStatus}
+
+USAGE PRIORITY:
+1. FIRST: Check cidx status with: cidx status
+2. IF all services show ""Running/Ready/Not needed/Ready"": Use cidx for all code searches
+3. IF any service shows failures: Fall back to grep/find/rg
+
+CIDX EXAMPLES:
+- Find authentication: cidx query ""authentication function"" --quiet
+- Find error handling: cidx query ""error handling patterns"" --language python --quiet
+- Find database code: cidx query ""database connection"" --path */services/* --quiet
+
+TRADITIONAL FALLBACK:
+- Use grep/find/rg only when cidx status shows service failures
+- Example: grep -r ""function"" . (when cidx unavailable)
+
+Remember: cidx understands intent and context, not just literal text matches.";
+    }
+    else
+    {
+        return $@"CIDX SEMANTIC SEARCH UNAVAILABLE
+
+Cidx services are not ready. Use traditional search tools for code exploration.
+
+CURRENT STATUS: {cidxStatus}
+
+USE TRADITIONAL TOOLS:
+- grep -r ""pattern"" .
+- find . -name ""*.ext"" -exec grep ""pattern"" {{}} \;
+- rg ""pattern"" --type language
+
+Check cidx status periodically with: cidx status";
+    }
+}
+```
+
+**Service Status Detection Logic**:
+- Parse `cidx status` output to detect component health
+- Look for specific patterns: "Docker Services: Running", "Voyage-AI Provider: Ready", etc.
+- Generate appropriate system prompt based on actual service availability
+- Graceful degradation when cidx services are not fully operational
+
+**Enhanced E2E Test Implementation**:
+
+```csharp
+[Fact]
+public async Task CidxIntegration_ExploreRepository_ShouldUseCidxWhenAvailable()
+{
+    // Setup: Clone https://github.com/jsbattig/tries.git repository
+    // Setup: Initialize cidx with voyage-id embedding provider
+    // Setup: Ensure cidx services are running and ready
+    
+    var explorationPrompt = @"Explore this repository and find how many test files are testing TStringHashTrie. 
+Please explain in detail how you conducted your exploration - what commands or tools you used to search through the codebase.";
+
+    var createJobRequest = new CreateJobRequest
+    {
+        Prompt = explorationPrompt,
+        Repository = "tries-test-repo",
+        Options = new JobOptionsDto { 
+            GitAware = true,
+            CidxAware = true,
+            Timeout = 300 
+        }
+    };
+
+    // Execute job and wait for completion
+    var jobResponse = await ExecuteJobAndWaitForCompletion(createJobRequest);
+    
+    // Verify cidx usage in Claude's response
+    jobResponse.Output.Should().Contain("cidx", 
+        "Claude should mention using cidx for code exploration");
+    jobResponse.Output.Should().Contain("query", 
+        "Claude should show cidx query commands used");
+    jobResponse.Output.Should().ContainAny(new[] { "semantic", "intent", "understanding" },
+        "Claude should explain semantic search approach");
+    
+    // Verify actual results
+    jobResponse.Output.Should().Contain("TStringHashTrie", 
+        "Claude should find TStringHashTrie-related content");
+    jobResponse.Output.Should().MatchRegex(@"\d+.*test.*file", 
+        "Claude should provide count of test files found");
+    
+    // Verify methodology explanation
+    jobResponse.Output.Should().Contain("exploration", 
+        "Claude should explain exploration methodology");
+}
+
+[Fact]
+public async Task CidxIntegration_ExploreRepository_ShouldFallbackWhenCidxUnavailable()
+{
+    // Setup: Same repository but with cidx disabled or services down
+    
+    var explorationPrompt = @"Explore this repository and find how many test files are testing TStringHashTrie. 
+Please explain in detail how you conducted your exploration - what commands or tools you used to search through the codebase.";
+
+    var createJobRequest = new CreateJobRequest
+    {
+        Prompt = explorationPrompt,
+        Repository = "tries-test-repo",
+        Options = new JobOptionsDto { 
+            GitAware = true,
+            CidxAware = false, // Explicitly disable cidx
+            Timeout = 300 
+        }
+    };
+
+    // Execute job and wait for completion
+    var jobResponse = await ExecuteJobAndWaitForCompletion(createJobRequest);
+    
+    // Verify traditional tool usage
+    jobResponse.Output.Should().ContainAny(new[] { "grep", "find", "rg" },
+        "Claude should mention using traditional search tools");
+    jobResponse.Output.Should().Not.Contain("cidx",
+        "Claude should not mention cidx when unavailable");
+    
+    // Verify same accuracy with different methodology
+    jobResponse.Output.Should().Contain("TStringHashTrie", 
+        "Claude should still find TStringHashTrie-related content");
+    jobResponse.Output.Should().MatchRegex(@"\d+.*test.*file", 
+        "Claude should still provide count of test files found");
+}
+```
 
 #### 2.7 Enhanced Queue Management System
 
@@ -287,6 +519,13 @@ GET /admin/sessions
 - Rate limiting and DoS protection
 - Audit logging for all operations
 - Secure credential storage
+
+#### Security Technical Debt
+- **JWT Middleware Authentication Issue**: Current JWT authentication middleware failing with "IDX10517: Signature validation failed. The token's kid is missing"
+  - **Current Workaround**: Manual JWT validation in JobsController bypassing middleware
+  - **Planned Fix**: Debug and resolve middleware configuration issues to enable proper JWT authentication across all controllers
+  - **Impact**: Repository APIs currently require manual JWT validation workaround for authentication
+  - **Priority**: High - affects all new API endpoints and creates inconsistent authentication patterns
 
 ### Performance Requirements
 - Support 10+ concurrent Claude Code sessions
@@ -459,10 +698,31 @@ E2E_CLEANUP_ENABLED=true
   - [ ] Post-git-pull cidx indexing (`cidx index --reconcile`)
   - [ ] Status reporting for cidx operations ("cidx_indexing", "cidx_ready")
   - [ ] Automatic cidx cleanup when Claude execution completes
+  - [ ] **Claude Code Cidx Integration via System Prompt**
+    - [ ] Use `--append-system-prompt` to teach Claude Code about cidx availability
+    - [ ] Instruct Claude to check cidx status (Docker Services, Voyage-AI Provider, Ollama, Qdrant)
+    - [ ] Prioritize `cidx query` over grep/find/rg when cidx services are "Running/Ready/Not needed/Ready"
+    - [ ] Fallback to traditional search methods when cidx is unavailable or failed
+    - [ ] Dynamic system prompt generation based on actual cidx service status
   - [ ] E2E test with real repository (https://github.com/jsbattig/tries.git)
   - [ ] E2E test: Clone repository to test folder, initialize cidx with voyage-id embedding
-  - [ ] E2E test: Ask Claude to list files, assert hash_trie.pas is found in listing
+  - [ ] **E2E test: Enhanced cidx usage verification**
+    - [ ] **Test Prompt**: "Explore this repository and find how many test files are testing TStringHashTrie. Please explain in detail how you conducted your exploration - what commands or tools you used to search through the codebase."
+    - [ ] **Cidx Available Assertions**:
+      - [ ] Response should mention "cidx" or "semantic search"
+      - [ ] Response should show `cidx query` commands used
+      - [ ] Response should explain semantic search approach
+      - [ ] Should find test files efficiently using intent-based search
+    - [ ] **Cidx Unavailable Assertions**:
+      - [ ] Response should mention "grep", "find", or "rg" 
+      - [ ] Response should show traditional search commands used
+      - [ ] Response should explain literal text search approach
+    - [ ] **Common Verification**:
+      - [ ] Response should identify actual TStringHashTrie test files
+      - [ ] Response should provide accurate count of test files
+      - [ ] Response should explain the methodology used for exploration
   - [ ] E2E test: Verify cidx is stopped after test completion and repository is cleaned
+  - [ ] E2E test: Verify Claude Code receives and uses cidx-aware system prompt
   - [ ] Voyage-id embedding provider configuration for testing
 - [ ] **Production Ready Features**
   - [ ] PAM integration for enterprise authentication
