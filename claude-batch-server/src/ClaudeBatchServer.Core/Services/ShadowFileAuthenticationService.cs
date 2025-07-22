@@ -14,6 +14,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     private readonly IConfiguration _configuration;
     private readonly string _jwtKey;
     private readonly int _jwtExpiryHours;
+    private readonly string _shadowFilePath;
     private readonly HashSet<string> _revokedTokens = new();
 
     public ShadowFileAuthenticationService(IConfiguration configuration)
@@ -21,6 +22,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         _configuration = configuration;
         _jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
         _jwtExpiryHours = int.Parse(_configuration["Jwt:ExpiryHours"] ?? "24");
+        _shadowFilePath = _configuration["Auth:ShadowFilePath"] ?? "/etc/shadow";
     }
 
     public async Task<LoginResponse?> AuthenticateAsync(LoginRequest request)
@@ -153,7 +155,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     {
         try
         {
-            var shadowContent = await File.ReadAllTextAsync("/etc/shadow");
+            var shadowContent = await File.ReadAllTextAsync(_shadowFilePath);
             var shadowLine = shadowContent.Split('\n')
                 .FirstOrDefault(line => line.StartsWith($"{username}:"));
             
@@ -206,10 +208,42 @@ public class ShadowFileAuthenticationService : IAuthenticationService
 
     private string ComputeSHA512Hash(string password, string salt)
     {
-        using var sha512 = SHA512.Create();
-        var input = Encoding.UTF8.GetBytes(password + salt);
-        var hash = sha512.ComputeHash(input);
-        return Convert.ToBase64String(hash).TrimEnd('=');
+        // For now, use a simple approach that calls the system crypt via Python
+        // This is not ideal for production but works for testing
+        try
+        {
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "python3",
+                    Arguments = $"-c \"import crypt; print(crypt.crypt('{password}', '$6${salt}$'), end='')\"",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            
+            process.Start();
+            var result = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            
+            if (process.ExitCode == 0 && !string.IsNullOrEmpty(result))
+            {
+                // Extract just the hash part (after the second $)
+                var parts = result.Split('$');
+                if (parts.Length >= 4)
+                {
+                    return parts[3];
+                }
+            }
+            
+            return string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>

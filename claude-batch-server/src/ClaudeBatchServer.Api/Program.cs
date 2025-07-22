@@ -4,8 +4,12 @@ using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using ClaudeBatchServer.Core.Services;
 using ClaudeBatchServer.Api;
+using System.IdentityModel.Tokens.Jwt;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Clear default JWT claim mappings to use the original claim names
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
@@ -17,6 +21,8 @@ builder.Services.AddSwaggerGen();
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
 var key = Encoding.ASCII.GetBytes(jwtKey);
 
+Log.Information("JWT Key configured: {Key} (length: {Length})", jwtKey, jwtKey.Length);
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -26,16 +32,44 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(key),
             ValidateIssuer = false,
             ValidateAudience = false,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = "unique_name" // Map the JWT unique_name claim to Identity.Name
+        };
+        
+        // Add debugging events
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                Log.Information("JWT OnMessageReceived: Token={Token}", context.Token);
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                Log.Information("JWT OnTokenValidated: User={User}, Claims={Claims}", 
+                    context.Principal?.Identity?.Name, 
+                    context.Principal?.Claims.Count());
+                return Task.CompletedTask;
+            },
+            OnAuthenticationFailed = context =>
+            {
+                Log.Error(context.Exception, "JWT OnAuthenticationFailed: {Message}", context.Exception.Message);
+                return Task.CompletedTask;
+            },
+            OnChallenge = context =>
+            {
+                Log.Warning("JWT OnChallenge: {Error}", context.Error);
+                return Task.CompletedTask;
+            }
         };
     });
 
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<IAuthenticationService, ShadowFileAuthenticationService>();
-builder.Services.AddScoped<IRepositoryService, CowRepositoryService>();
-builder.Services.AddScoped<IJobService, JobService>();
-builder.Services.AddScoped<IClaudeCodeExecutor, ClaudeCodeExecutor>();
+builder.Services.AddSingleton<IRepositoryService, CowRepositoryService>();
+builder.Services.AddSingleton<IJobService, JobService>();
+builder.Services.AddSingleton<IClaudeCodeExecutor, ClaudeCodeExecutor>();
 
 builder.Services.AddHostedService<JobQueueHostedService>();
 

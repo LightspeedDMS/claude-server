@@ -40,7 +40,8 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
                     ["Workspace:JobsPath"] = _testJobsPath,
                     ["Jobs:MaxConcurrent"] = "1",
                     ["Jobs:TimeoutHours"] = "1",
-                    ["Claude:Command"] = "claude" // Use real Claude Code CLI
+                    ["Auth:ShadowFilePath"] = "/home/jsbattig/Dev/claude-server/claude-batch-server/test-shadow",
+                    ["Claude:Command"] = "claude --dangerously-skip-permissions --print"
                 });
             });
         });
@@ -237,14 +238,14 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
         
         // Get credentials from environment
         var username = Environment.GetEnvironmentVariable("TEST_USERNAME");
-        var passwordHash = Environment.GetEnvironmentVariable("TEST_PASSWORD_HASH");
+        var password = Environment.GetEnvironmentVariable("TEST_PASSWORD");
         
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(passwordHash))
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
         {
             // Debug: Show the current directory and environment path
             var currentDir = Directory.GetCurrentDirectory();
             var envExists = File.Exists(envPath);
-            throw new InvalidOperationException($"TEST_USERNAME and TEST_PASSWORD_HASH environment variables must be set in .env file. " +
+            throw new InvalidOperationException($"TEST_USERNAME and TEST_PASSWORD environment variables must be set in .env file. " +
                 $"Current dir: {currentDir}, Env path: {envPath}, Env exists: {envExists}");
         }
 
@@ -252,7 +253,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
         var loginRequest = new LoginRequest
         {
             Username = username,
-            Password = passwordHash // Using the pre-computed hash for HTTP
+            Password = password // Using plaintext password for testing
         };
 
         var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
@@ -307,7 +308,15 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
 
         // Step 6: Verify job execution results
         statusResponse.Should().NotBeNull("Final status response should not be null");
-        statusResponse!.Status.Should().Be("completed", "Job should complete successfully");
+        
+        // Debug output for failed jobs
+        if (statusResponse!.Status == "failed")
+        {
+            Console.WriteLine($"Job failed with exit code: {statusResponse.ExitCode}");
+            Console.WriteLine($"Job output: {statusResponse.Output}");
+        }
+        
+        statusResponse.Status.Should().Be("completed", "Job should complete successfully");
         statusResponse.ExitCode.Should().Be(0, "Claude Code should exit successfully");
         statusResponse.Output.Should().NotBeNullOrEmpty("Claude should produce output");
         

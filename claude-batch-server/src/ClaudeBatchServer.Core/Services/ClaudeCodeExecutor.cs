@@ -18,7 +18,7 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
     {
         _configuration = configuration;
         _logger = logger;
-        _claudeCommand = _configuration["Claude:Command"] ?? "claude";
+        _claudeCommand = _configuration["Claude:Command"] ?? "claude --dangerously-skip-permissions --print";
     }
 
     public async Task<(int ExitCode, string Output)> ExecuteAsync(Job job, string username, CancellationToken cancellationToken)
@@ -36,11 +36,11 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
             var processInfo = new ProcessStartInfo
             {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"cd '{job.CowPath}' && {_claudeCommand} {claudeArgs}\"",
+                FileName = _claudeCommand.Split(' ')[0], // Get the command (e.g., "claude")
+                Arguments = string.Join(" ", _claudeCommand.Split(' ').Skip(1).Concat(claudeArgs.Split(' '))), // Get all args
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                RedirectStandardInput = true,
+                RedirectStandardInput = true, // Enable stdin redirection to pipe the prompt
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = job.CowPath
@@ -76,17 +76,17 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                await ImpersonateUserAsync(process, userInfo);
+                ImpersonateUser(processInfo, userInfo);
             }
 
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
+            // Write the prompt to stdin and close it
             if (!string.IsNullOrEmpty(job.Prompt))
             {
-                await process.StandardInput.WriteLineAsync(job.Prompt);
-                await process.StandardInput.FlushAsync();
+                await process.StandardInput.WriteAsync(job.Prompt);
                 process.StandardInput.Close();
             }
 
@@ -117,10 +117,7 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
     {
         var args = new List<string>();
 
-        if (!string.IsNullOrEmpty(job.Prompt))
-        {
-            args.Add("--prompt-from-stdin");
-        }
+        // Don't include the prompt here since we're piping it to stdin
 
         foreach (var image in job.Images)
         {
@@ -128,7 +125,8 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             args.Add($"--image \"{imagePath}\"");
         }
 
-        args.Add("--timeout " + job.Options.TimeoutSeconds);
+        // Note: Claude CLI doesn't support --timeout option
+        // Timeout should be handled by the job service itself
 
         return string.Join(" ", args);
     }
@@ -185,7 +183,7 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         }
     }
 
-    private async Task ImpersonateUserAsync(Process process, UserInfo userInfo)
+    private void ImpersonateUser(ProcessStartInfo processInfo, UserInfo userInfo)
     {
         try
         {
@@ -195,12 +193,15 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
                 return;
             }
 
-            var sudoCommand = $"sudo -u {userInfo.Username} -H --";
-            process.StartInfo.FileName = "/bin/bash";
-            process.StartInfo.Arguments = $"-c \"{sudoCommand} {process.StartInfo.FileName} {process.StartInfo.Arguments}\"";
+            // Wrap the original command with sudo
+            var originalCommand = processInfo.FileName;
+            var originalArgs = processInfo.Arguments;
+            
+            processInfo.FileName = "sudo";
+            processInfo.Arguments = $"-u {userInfo.Username} -H -- {originalCommand} {originalArgs}";
 
-            _logger.LogDebug("Executing as user {Username} with command: {Command}", 
-                userInfo.Username, process.StartInfo.Arguments);
+            _logger.LogDebug("Executing as user {Username} with command: sudo {Arguments}", 
+                userInfo.Username, processInfo.Arguments);
         }
         catch (Exception ex)
         {
