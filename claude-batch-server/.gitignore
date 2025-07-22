@@ -1,0 +1,32 @@
+# Credentials and sensitive files
+.env
+.env.*
+
+# Build results
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+
+# IDE files
+.vscode/
+.vs/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/

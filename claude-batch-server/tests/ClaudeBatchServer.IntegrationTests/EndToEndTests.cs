@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using ClaudeBatchServer.Api;
 using ClaudeBatchServer.Core.DTOs;
+using DotNetEnv;
 
 namespace ClaudeBatchServer.IntegrationTests;
 
@@ -17,6 +18,13 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
 
     public EndToEndTests(WebApplicationFactory<Program> factory)
     {
+        // Load environment variables from .env file in the project root
+        var envPath = "/home/jsbattig/Dev/claude-server/claude-batch-server/.env";
+        if (File.Exists(envPath))
+        {
+            Env.Load(envPath);
+        }
+        
         _testRepoPath = Path.Combine(Path.GetTempPath(), "e2e-test-repos", Guid.NewGuid().ToString());
         _testJobsPath = Path.Combine(Path.GetTempPath(), "e2e-test-jobs", Guid.NewGuid().ToString());
         
@@ -32,7 +40,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
                     ["Workspace:JobsPath"] = _testJobsPath,
                     ["Jobs:MaxConcurrent"] = "1",
                     ["Jobs:TimeoutHours"] = "1",
-                    ["Claude:Command"] = "echo"
+                    ["Claude:Command"] = "claude" // Use real Claude Code CLI
                 });
             });
         });
@@ -215,6 +223,112 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
         var data = new byte[100];
         Array.Copy(pngHeader, data, pngHeader.Length);
         return data;
+    }
+
+    [Fact]
+    public async Task ClaudeCodeExecution_RealE2E_ShouldCallClaudeAndReturnOutput()
+    {
+        // Load environment variables directly from .env file for this test
+        var envPath = "/home/jsbattig/Dev/claude-server/claude-batch-server/.env";
+        if (File.Exists(envPath))
+        {
+            Env.Load(envPath);
+        }
+        
+        // Get credentials from environment
+        var username = Environment.GetEnvironmentVariable("TEST_USERNAME");
+        var passwordHash = Environment.GetEnvironmentVariable("TEST_PASSWORD_HASH");
+        
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(passwordHash))
+        {
+            // Debug: Show the current directory and environment path
+            var currentDir = Directory.GetCurrentDirectory();
+            var envExists = File.Exists(envPath);
+            throw new InvalidOperationException($"TEST_USERNAME and TEST_PASSWORD_HASH environment variables must be set in .env file. " +
+                $"Current dir: {currentDir}, Env path: {envPath}, Env exists: {envExists}");
+        }
+
+        // Step 1: Authenticate with real credentials
+        var loginRequest = new LoginRequest
+        {
+            Username = username,
+            Password = passwordHash // Using the pre-computed hash for HTTP
+        };
+
+        var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Authentication should succeed with valid credentials");
+        
+        var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
+        loginResult.Should().NotBeNull();
+        loginResult!.Token.Should().NotBeNullOrEmpty();
+
+        // Step 2: Create authenticated client
+        var authClient = CreateAuthenticatedClient(loginResult.Token);
+
+        // Step 3: Create job with simple Claude Code prompt
+        var createJobRequest = new CreateJobRequest
+        {
+            Prompt = "1+1",  // Simple math that Claude should answer with "2"
+            Repository = "test-repo",
+            Options = new JobOptionsDto { Timeout = 60 } // Allow more time for real Claude execution
+        };
+
+        var createResponse = await authClient.PostAsJsonAsync("/jobs", createJobRequest);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created, "Job creation should succeed");
+        
+        var jobResponse = await createResponse.Content.ReadFromJsonAsync<CreateJobResponse>();
+        jobResponse.Should().NotBeNull();
+        jobResponse!.JobId.Should().NotBeEmpty();
+
+        // Step 4: Start the job
+        var startResponse = await authClient.PostAsync($"/jobs/{jobResponse.JobId}/start", null);
+        startResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Job start should succeed");
+
+        // Step 5: Poll for completion (real Claude execution takes time)
+        JobStatusResponse? statusResponse = null;
+        var timeout = DateTime.UtcNow.AddMinutes(3); // Give Claude time to respond
+        var pollCount = 0;
+        const int maxPolls = 60; // Max 60 polls (3 minutes with 3-second intervals)
+
+        while (DateTime.UtcNow < timeout && pollCount < maxPolls)
+        {
+            await Task.Delay(3000); // Wait 3 seconds between polls
+            pollCount++;
+            
+            var statusHttpResponse = await authClient.GetAsync($"/jobs/{jobResponse.JobId}");
+            statusHttpResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Job status check should succeed");
+            
+            statusResponse = await statusHttpResponse.Content.ReadFromJsonAsync<JobStatusResponse>();
+            statusResponse.Should().NotBeNull($"Job status response should not be null on poll {pollCount}");
+            
+            if (statusResponse!.Status == "completed" || statusResponse.Status == "failed")
+                break;
+        }
+
+        // Step 6: Verify job execution results
+        statusResponse.Should().NotBeNull("Final status response should not be null");
+        statusResponse!.Status.Should().Be("completed", "Job should complete successfully");
+        statusResponse.ExitCode.Should().Be(0, "Claude Code should exit successfully");
+        statusResponse.Output.Should().NotBeNullOrEmpty("Claude should produce output");
+        
+        // The key assertion: Claude should respond to "1+1" with "2"
+        statusResponse.Output.Should().Contain("2", "Claude should correctly answer 1+1=2");
+        
+        // Verify timing fields are populated
+        statusResponse.StartedAt.Should().NotBeNull("Job should have a start time");
+        statusResponse.CompletedAt.Should().NotBeNull("Job should have a completion time");
+        statusResponse.CompletedAt.Should().BeAfter(statusResponse.StartedAt!.Value, "Completion should be after start");
+        
+        // Verify job ID matches
+        statusResponse.JobId.Should().Be(jobResponse.JobId, "Job ID should match");
+    }
+
+    private HttpClient CreateAuthenticatedClient(string token)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = 
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 
     public void Dispose()
