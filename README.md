@@ -7,7 +7,9 @@ A dockerized REST API server that automates Claude Code execution in batch mode,
 - **Multi-user Support**: Each Claude Code session runs under the authenticated user's context
 - **Copy-on-Write Repositories**: Instant repository cloning using filesystem CoW features
 - **Job Queue Management**: Configurable concurrency limits with queue-based scheduling
-- **Image Upload Support**: Per-job image isolation for Claude Code prompts
+- **File Upload Support**: Per-job file isolation for Claude Code prompts (any file type)
+- **Image Analysis**: Complete image upload → Claude analysis → detailed results pipeline
+- **JWT Authentication**: Production-ready authentication with shadow file validation
 - **Cross-Platform**: Supports Rocky Linux (XFS) and Ubuntu (ext4/Btrfs)
 - **MIT Licensed**: Open source with permissive licensing
 
@@ -31,19 +33,26 @@ docker-compose up -d
 ## API Endpoints
 
 ### Authentication
-- `POST /auth/login` - User authentication
-- `POST /auth/logout` - Session termination
+- `POST /auth/login` - User authentication (sync)
+- `POST /auth/logout` - Session termination (sync)
+
+### Repository Management
+- `POST /repositories/register` - Register repository (async)
+- `GET /repositories` - List repositories (sync)
+- `GET /repositories/{name}` - Get repository details with Git metadata (sync)
+- `DELETE /repositories/{name}` - Unregister repository (sync)
 
 ### Job Management
-- `POST /jobs` - Create new job
-- `POST /jobs/{id}/images` - Upload images for job
-- `POST /jobs/{id}/start` - Start job execution
-- `GET /jobs/{id}` - Get job status and output
-- `DELETE /jobs/{id}` - Terminate job
+- `POST /jobs` - Create new job with prompt and optional files (sync)
+- `POST /jobs/{id}/files` - Upload multiple files with filename preservation (sync) - **UPDATED FROM /images**
+- `POST /jobs/{id}/start` - Start job execution with template substitution (async)
+- `GET /jobs/{id}` - Get job status and output (sync)
+- `POST /jobs/{id}/cancel` - Cancel running job (sync)
+- `DELETE /jobs/{id}` - Terminate job (sync)
 
 ### File Access
-- `GET /jobs/{id}/files` - List job workspace files
-- `GET /jobs/{id}/files/download` - Download files from job workspace
+- `GET /jobs/{id}/files` - List job workspace files (sync)
+- `GET /jobs/{id}/files/download` - Download files from job workspace (sync)
 
 ## Documentation
 
