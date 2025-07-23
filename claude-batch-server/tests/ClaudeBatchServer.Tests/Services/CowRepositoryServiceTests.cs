@@ -10,6 +10,7 @@ public class CowRepositoryServiceTests
 {
     private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly Mock<ILogger<CowRepositoryService>> _mockLogger;
+    private readonly Mock<IGitMetadataService> _mockGitMetadataService;
     private readonly CowRepositoryService _repositoryService;
     private readonly string _testReposPath;
     private readonly string _testJobsPath;
@@ -18,6 +19,7 @@ public class CowRepositoryServiceTests
     {
         _mockConfiguration = new Mock<IConfiguration>();
         _mockLogger = new Mock<ILogger<CowRepositoryService>>();
+        _mockGitMetadataService = new Mock<IGitMetadataService>();
         
         _testReposPath = Path.Combine(Path.GetTempPath(), "test-repos", Guid.NewGuid().ToString());
         _testJobsPath = Path.Combine(Path.GetTempPath(), "test-jobs", Guid.NewGuid().ToString());
@@ -25,7 +27,7 @@ public class CowRepositoryServiceTests
         _mockConfiguration.Setup(c => c["Workspace:RepositoriesPath"]).Returns(_testReposPath);
         _mockConfiguration.Setup(c => c["Workspace:JobsPath"]).Returns(_testJobsPath);
         
-        _repositoryService = new CowRepositoryService(_mockConfiguration.Object, _mockLogger.Object);
+        _repositoryService = new CowRepositoryService(_mockConfiguration.Object, _mockLogger.Object, _mockGitMetadataService.Object);
         
         Directory.CreateDirectory(_testReposPath);
         Directory.CreateDirectory(_testJobsPath);
@@ -148,7 +150,8 @@ public class CowRepositoryServiceTests
     {
         var result = await _repositoryService.ValidateCowSupportAsync();
 
-        (result is bool).Should().BeTrue();
+        // Result should be a boolean (true or false)
+        Assert.True(result == true || result == false);
     }
 
     [Fact]

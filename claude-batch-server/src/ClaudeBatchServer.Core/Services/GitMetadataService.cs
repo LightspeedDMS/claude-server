@@ -59,24 +59,24 @@ public class GitMetadataService : IGitMetadataService
             var metadata = new GitMetadata();
 
             // Get remote URL
-            metadata.RemoteUrl = await ExecuteGitCommandAsync(repoPath, "config --get remote.origin.url");
+            metadata.RemoteUrl = await ExecuteGitCommandAsync(repoPath, "config", "--get", "remote.origin.url");
 
             // Get current branch
-            metadata.CurrentBranch = await ExecuteGitCommandAsync(repoPath, "branch --show-current");
+            metadata.CurrentBranch = await ExecuteGitCommandAsync(repoPath, "branch", "--show-current");
 
             // Get latest commit info
-            metadata.CommitHash = await ExecuteGitCommandAsync(repoPath, "rev-parse HEAD");
-            metadata.CommitMessage = await ExecuteGitCommandAsync(repoPath, "log -1 --pretty=format:%s");
-            metadata.CommitAuthor = await ExecuteGitCommandAsync(repoPath, "log -1 --pretty=format:%an");
+            metadata.CommitHash = await ExecuteGitCommandAsync(repoPath, "rev-parse", "HEAD");
+            metadata.CommitMessage = await ExecuteGitCommandAsync(repoPath, "log", "-1", "--pretty=format:%s");
+            metadata.CommitAuthor = await ExecuteGitCommandAsync(repoPath, "log", "-1", "--pretty=format:%an");
             
-            var commitDateStr = await ExecuteGitCommandAsync(repoPath, "log -1 --pretty=format:%ai");
+            var commitDateStr = await ExecuteGitCommandAsync(repoPath, "log", "-1", "--pretty=format:%ai");
             if (!string.IsNullOrEmpty(commitDateStr) && DateTime.TryParse(commitDateStr, out var commitDate))
             {
                 metadata.CommitDate = commitDate;
             }
 
             // Check for uncommitted changes
-            var statusOutput = await ExecuteGitCommandAsync(repoPath, "status --porcelain");
+            var statusOutput = await ExecuteGitCommandAsync(repoPath, "status", "--porcelain");
             metadata.HasUncommittedChanges = !string.IsNullOrWhiteSpace(statusOutput);
 
             // Get ahead/behind status
@@ -129,20 +129,20 @@ public class GitMetadataService : IGitMetadataService
         }
     }
 
-    private async Task<string?> ExecuteGitCommandAsync(string workingDirectory, string arguments)
+    private async Task<string?> ExecuteGitCommandAsync(string workingDirectory, params string[] arguments)
     {
         try
         {
-            var processInfo = new ProcessStartInfo
+            // Validate working directory path to prevent injection
+            if (!SecurityUtils.IsValidPath(workingDirectory))
             {
-                FileName = "git",
-                Arguments = arguments,
-                WorkingDirectory = workingDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                _logger.LogWarning("Invalid working directory path: {WorkingDirectory}", workingDirectory);
+                return null;
+            }
+
+            // Use safe process creation
+            var processInfo = SecurityUtils.CreateSafeProcess("git", arguments);
+            processInfo.WorkingDirectory = workingDirectory;
 
             using var process = Process.Start(processInfo);
             if (process == null)
@@ -151,19 +151,21 @@ public class GitMetadataService : IGitMetadataService
             var output = await process.StandardOutput.ReadToEndAsync();
             var error = await process.StandardError.ReadToEndAsync();
             
-            await process.WaitForExitAsync();
+            // Add timeout protection
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await process.WaitForExitAsync(timeoutCts.Token);
 
             if (process.ExitCode == 0)
             {
                 return output.Trim();
             }
 
-            _logger.LogDebug("Git command failed: git {Arguments}. Error: {Error}", arguments, error);
+            _logger.LogDebug("Git command failed: git {Arguments}. Error: {Error}", string.Join(" ", arguments), error);
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Error executing git command: git {Arguments}", arguments);
+            _logger.LogDebug(ex, "Error executing git command: git {Arguments}", string.Join(" ", arguments));
             return null;
         }
     }
@@ -176,15 +178,15 @@ public class GitMetadataService : IGitMetadataService
                 return null;
 
             // First, try to update remote tracking info
-            await ExecuteGitCommandAsync(repoPath, "fetch --dry-run");
+            await ExecuteGitCommandAsync(repoPath, "fetch", "--dry-run");
 
             // Get ahead/behind count
-            var aheadBehindStr = await ExecuteGitCommandAsync(repoPath, $"rev-list --left-right --count origin/{currentBranch}...HEAD");
+            var aheadBehindStr = await ExecuteGitCommandAsync(repoPath, "rev-list", "--left-right", "--count", $"origin/{currentBranch}...HEAD");
             
             if (string.IsNullOrEmpty(aheadBehindStr))
             {
                 // Fallback: try without origin prefix
-                aheadBehindStr = await ExecuteGitCommandAsync(repoPath, $"rev-list --left-right --count {currentBranch}@{{upstream}}...HEAD");
+                aheadBehindStr = await ExecuteGitCommandAsync(repoPath, "rev-list", "--left-right", "--count", $"{currentBranch}@{{upstream}}...HEAD");
             }
 
             if (!string.IsNullOrEmpty(aheadBehindStr))

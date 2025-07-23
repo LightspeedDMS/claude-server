@@ -178,11 +178,17 @@ public class CowRepositoryService : IRepositoryService
     {
         _logger.LogInformation("Registering repository {Name} from {GitUrl}", name, gitUrl);
 
-        // Validate input
+        // Validate input with security checks
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Repository name cannot be empty", nameof(name));
         if (string.IsNullOrWhiteSpace(gitUrl))
             throw new ArgumentException("Git URL cannot be empty", nameof(gitUrl));
+
+        // Security validation to prevent injection attacks
+        if (!SecurityUtils.IsValidRepositoryName(name))
+            throw new ArgumentException($"Repository name '{name}' contains invalid characters or format", nameof(name));
+        if (!SecurityUtils.IsValidGitUrl(gitUrl))
+            throw new ArgumentException($"Git URL '{gitUrl}' is not in a valid format", nameof(gitUrl));
 
         // Check if repository already exists
         var existing = await GetRepositoryAsync(name);
@@ -206,20 +212,15 @@ public class CowRepositoryService : IRepositoryService
 
         try
         {
-            // Clone the repository
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                Arguments = $"clone \"{gitUrl}\" \"{repositoryPath}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
+            // Clone the repository using safe process execution
+            var processInfo = SecurityUtils.CreateSafeProcess("git", "clone", gitUrl, repositoryPath);
+            
             using var process = new Process { StartInfo = processInfo };
             process.Start();
-            await process.WaitForExitAsync();
+            
+            // Add timeout protection to prevent hanging processes
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+            await process.WaitForExitAsync(timeoutCts.Token);
 
             if (process.ExitCode == 0)
             {
@@ -344,8 +345,11 @@ public class CowRepositoryService : IRepositoryService
                 throw new NotSupportedException("No Copy-on-Write method available");
         }
 
+        // Create both images and files directories for backward compatibility and universal file support
         var imagesPath = Path.Combine(jobPath, "images");
+        var filesPath = Path.Combine(jobPath, "files");
         Directory.CreateDirectory(imagesPath);
+        Directory.CreateDirectory(filesPath);
 
         _logger.LogInformation("Created CoW clone of {Repository} at {JobPath} using {Method}", 
             repositoryName, jobPath, _cowMethod);
@@ -361,7 +365,7 @@ public class CowRepositoryService : IRepositoryService
 
             if (_cowMethod == CowMethod.BtrfsSnapshot)
             {
-                var result = await ExecuteCommandAsync("btrfs", $"subvolume delete \"{cowPath}\"");
+                var result = await ExecuteCommandAsync("btrfs", "subvolume", "delete", cowPath);
                 return result.ExitCode == 0;
             }
             else
@@ -499,7 +503,7 @@ public class CowRepositoryService : IRepositoryService
     {
         try
         {
-            var result = await ExecuteCommandAsync("df", $"-T \"{path}\"");
+            var result = await ExecuteCommandAsync("df", "-T", path);
             if (result.ExitCode == 0)
             {
                 var lines = result.Output.Split('\n');
@@ -529,7 +533,7 @@ public class CowRepositoryService : IRepositoryService
             
             await File.WriteAllTextAsync(sourceFile, "test content");
             
-            var result = await ExecuteCommandAsync("cp", $"--reflink=always \"{sourceFile}\" \"{targetFile}\"");
+            var result = await ExecuteCommandAsync("cp", "--reflink=always", sourceFile, targetFile);
             
             Directory.Delete(testDir, true);
             return result.ExitCode == 0;
@@ -544,7 +548,7 @@ public class CowRepositoryService : IRepositoryService
     {
         try
         {
-            var result = await ExecuteCommandAsync("btrfs", "filesystem show");
+            var result = await ExecuteCommandAsync("btrfs", "filesystem", "show");
             return result.ExitCode == 0;
         }
         catch
@@ -555,7 +559,7 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task CreateReflinkCloneAsync(string sourcePath, string targetPath)
     {
-        var result = await ExecuteCommandAsync("cp", $"-r --reflink=always \"{sourcePath}\" \"{targetPath}\"");
+        var result = await ExecuteCommandAsync("cp", "-r", "--reflink=always", sourcePath, targetPath);
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"Failed to create reflink clone: {result.Error}");
@@ -564,7 +568,7 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task CreateBtrfsSnapshotAsync(string sourcePath, string targetPath)
     {
-        var result = await ExecuteCommandAsync("btrfs", $"subvolume snapshot \"{sourcePath}\" \"{targetPath}\"");
+        var result = await ExecuteCommandAsync("btrfs", "subvolume", "snapshot", sourcePath, targetPath);
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"Failed to create Btrfs snapshot: {result.Error}");
@@ -573,34 +577,27 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task CreateHardlinkCloneAsync(string sourcePath, string targetPath)
     {
-        var result = await ExecuteCommandAsync("rsync", $"-a --link-dest=\"{sourcePath}\" \"{sourcePath}/\" \"{targetPath}/\"");
+        var result = await ExecuteCommandAsync("rsync", "-a", $"--link-dest={sourcePath}", $"{sourcePath}/", $"{targetPath}/");
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"Failed to create hardlink clone: {result.Error}");
         }
     }
 
-    private async Task<(int ExitCode, string Output, string Error)> ExecuteCommandAsync(string command, string arguments)
+    private async Task<(int ExitCode, string Output, string Error)> ExecuteCommandAsync(string command, params string[] arguments)
     {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = command,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
+        // Use safe process creation to prevent injection
+        var processInfo = SecurityUtils.CreateSafeProcess(command, arguments);
+        
+        using var process = new Process { StartInfo = processInfo };
         process.Start();
         
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask = process.StandardError.ReadToEndAsync();
         
-        await process.WaitForExitAsync();
+        // Add timeout protection
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        await process.WaitForExitAsync(timeoutCts.Token);
         
         var output = await outputTask;
         var error = await errorTask;

@@ -41,11 +41,15 @@ public class JobService : IJobService
         if (repository == null)
             throw new ArgumentException($"Repository '{request.Repository}' not found");
 
+        // Generate job title using Claude Code
+        var jobTitle = await _claudeExecutor.GenerateJobTitleAsync(request.Prompt);
+
         var job = new Job
         {
             Id = Guid.NewGuid(),
             Username = username,
             Prompt = request.Prompt,
+            Title = jobTitle,
             Repository = request.Repository,
             Images = request.Images.ToList(),
             Status = JobStatus.Created,
@@ -72,7 +76,8 @@ public class JobService : IJobService
             JobId = job.Id,
             Status = job.Status.ToString().ToLower(),
             User = username,
-            CowPath = cowPath
+            CowPath = cowPath,
+            Title = job.Title
         };
     }
 
@@ -122,7 +127,8 @@ public class JobService : IJobService
             StartedAt = job.StartedAt,
             CompletedAt = job.CompletedAt,
             GitStatus = job.GitStatus,
-            CidxStatus = job.CidxStatus
+            CidxStatus = job.CidxStatus,
+            Title = job.Title
         });
     }
 
@@ -141,11 +147,32 @@ public class JobService : IJobService
             terminated = true;
         }
 
+        // CRITICAL FIX: Stop cidx containers before removing CoW clone
+        // This prevents Docker container leaks when jobs used cidx
+        bool cidxStopped = false;
+        if (job.Options.CidxAware && Directory.Exists(job.CowPath))
+        {
+            try
+            {
+                _logger.LogInformation("Stopping cidx containers for job {JobId} before cleanup", jobId);
+                var stopResult = await _claudeExecutor.StopCidxAsync(job.CowPath, username, CancellationToken.None);
+                cidxStopped = stopResult.ExitCode == 0;
+                if (!cidxStopped)
+                {
+                    _logger.LogWarning("Failed to stop cidx containers for job {JobId}: {Output}", jobId, stopResult.Output);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error stopping cidx containers for job {JobId}", jobId);
+            }
+        }
+
         var cowRemoved = await _repositoryService.RemoveCowCloneAsync(job.CowPath);
         _jobs.TryRemove(jobId, out _);
 
-        _logger.LogInformation("Deleted job {JobId} for user {Username}, terminated: {Terminated}, CoW removed: {CowRemoved}", 
-            jobId, username, terminated, cowRemoved);
+        _logger.LogInformation("Deleted job {JobId} for user {Username}, terminated: {Terminated}, cidx stopped: {CidxStopped}, CoW removed: {CowRemoved}", 
+            jobId, username, terminated, cidxStopped, cowRemoved);
 
         return new DeleteJobResponse
         {
@@ -153,6 +180,46 @@ public class JobService : IJobService
             Terminated = terminated,
             CowRemoved = cowRemoved
         };
+    }
+
+    public Task<CancelJobResponse> CancelJobAsync(Guid jobId, string username)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            throw new ArgumentException("Job not found");
+
+        if (job.Username != username)
+            throw new UnauthorizedAccessException("Access denied");
+
+        // Check if job can be cancelled
+        var cancellableStates = new[] 
+        { 
+            JobStatus.Created, 
+            JobStatus.Queued, 
+            JobStatus.GitPulling, 
+            JobStatus.CidxIndexing,
+            JobStatus.Running 
+        };
+
+        if (!cancellableStates.Contains(job.Status))
+        {
+            throw new InvalidOperationException($"Cannot cancel job in status '{job.Status}'. Only jobs that are created, queued, or running can be cancelled.");
+        }
+
+        // Set cancellation info
+        job.Status = JobStatus.Cancelling;
+        job.CancelledAt = DateTime.UtcNow;
+        job.CancelReason = "User cancellation";
+
+        _logger.LogInformation("Job {JobId} marked for cancellation by user {Username}", jobId, username);
+
+        return Task.FromResult(new CancelJobResponse
+        {
+            JobId = jobId,
+            Status = job.Status.ToString().ToLower(),
+            Success = true,
+            Message = "Job has been marked for cancellation and will be terminated shortly",
+            CancelledAt = job.CancelledAt
+        });
     }
 
     public Task<List<JobListResponse>> GetUserJobsAsync(string username)
@@ -166,7 +233,8 @@ public class JobService : IJobService
                 User = j.Username,
                 Status = j.Status.ToString().ToLower(),
                 Started = j.StartedAt ?? j.CreatedAt,
-                Repository = j.Repository
+                Repository = j.Repository,
+                Title = j.Title
             })
             .ToList();
 
@@ -199,6 +267,53 @@ public class JobService : IJobService
         {
             Filename = safeFilename,
             Path = $"/workspace/jobs/{jobId}/images/"
+        };
+    }
+
+    public async Task<FileUploadResponse> UploadFileAsync(Guid jobId, string username, string filename, Stream fileStream, bool overwrite = false)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            throw new ArgumentException("Job not found");
+
+        if (job.Username != username)
+            throw new UnauthorizedAccessException("Access denied");
+
+        // Create files directory instead of images
+        var filesPath = Path.Combine(job.CowPath, "files");
+        Directory.CreateDirectory(filesPath);
+
+        var extension = Path.GetExtension(filename);
+        var safeFilename = filename;
+
+        // Preserve original filename but ensure safety
+        if (!overwrite)
+        {
+            // If not overwriting, create unique filename
+            var nameWithoutExtension = Path.GetFileNameWithoutExtension(filename);
+            safeFilename = $"{nameWithoutExtension}_{Guid.NewGuid().ToString("N")[..8]}{extension}";
+        }
+
+        var fullPath = Path.Combine(filesPath, safeFilename);
+        bool wasOverwritten = File.Exists(fullPath);
+
+        using var fileWriteStream = new FileStream(fullPath, FileMode.Create);
+        await fileStream.CopyToAsync(fileWriteStream);
+
+        // Update job to track file instead of adding to Images list (keep backward compatibility)
+        if (!job.Images.Contains(safeFilename))
+        {
+            job.Images.Add(safeFilename);
+        }
+
+        _logger.LogInformation("Uploaded file {Filename} for job {JobId} (overwritten: {Overwritten})", safeFilename, jobId, wasOverwritten);
+
+        return new FileUploadResponse
+        {
+            Filename = safeFilename,
+            Path = $"/workspace/jobs/{jobId}/files/",
+            FileType = extension,
+            FileSize = fileStream.Length,
+            Overwritten = wasOverwritten
         };
     }
 
@@ -251,6 +366,16 @@ public class JobService : IJobService
     {
         try
         {
+            // Check for cancellation before starting
+            if (job.Status == JobStatus.Cancelling)
+            {
+                job.Status = JobStatus.Cancelled;
+                job.CompletedAt = DateTime.UtcNow;
+                job.Output = job.CancelReason;
+                _logger.LogInformation("Job {JobId} was cancelled before execution", job.Id);
+                return;
+            }
+
             _logger.LogInformation("Starting job {JobId} for user {Username}", job.Id, job.Username);
             
             job.Status = JobStatus.Running;

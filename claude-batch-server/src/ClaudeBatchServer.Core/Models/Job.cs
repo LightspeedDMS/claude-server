@@ -5,6 +5,7 @@ public class Job
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Username { get; set; } = string.Empty;
     public string Prompt { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
     public string Repository { get; set; } = string.Empty;
     public List<string> Images { get; set; } = new();
     public JobStatus Status { get; set; } = JobStatus.Created;
@@ -15,6 +16,8 @@ public class Job
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public string CancelReason { get; set; } = string.Empty;
     public JobOptions Options { get; set; } = new();
     public string GitStatus { get; set; } = "not_checked";
     public string CidxStatus { get; set; } = "not_started";
@@ -32,7 +35,9 @@ public enum JobStatus
     Completed,
     Failed,
     Timeout,
-    Terminated
+    Terminated,
+    Cancelling,
+    Cancelled
 }
 
 public class JobOptions

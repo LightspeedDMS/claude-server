@@ -9,7 +9,9 @@ public interface IJobService
     Task<StartJobResponse> StartJobAsync(Guid jobId, string username);
     Task<JobStatusResponse?> GetJobStatusAsync(Guid jobId, string username);
     Task<DeleteJobResponse> DeleteJobAsync(Guid jobId, string username);
+    Task<CancelJobResponse> CancelJobAsync(Guid jobId, string username);
     Task<List<JobListResponse>> GetUserJobsAsync(string username);
     Task<ImageUploadResponse> UploadImageAsync(Guid jobId, string username, string filename, Stream imageStream);
+    Task<FileUploadResponse> UploadFileAsync(Guid jobId, string username, string filename, Stream fileStream, bool overwrite = false);
     Task ProcessJobQueueAsync(CancellationToken cancellationToken);
 }

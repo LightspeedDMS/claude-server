@@ -58,6 +58,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Generated Test Title");
 
         var result = await _jobService.CreateJobAsync(request, "testuser");
 
@@ -65,6 +69,7 @@ public class JobServiceTests : IDisposable
         result.Status.Should().Be("created");
         result.User.Should().Be("testuser");
         result.CowPath.Should().Be(testJobPath);
+        result.Title.Should().Be("Generated Test Title");
     }
 
     [Fact]
@@ -104,6 +109,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         var startResult = await _jobService.StartJobAsync(createResult.JobId, "testuser");
@@ -142,6 +151,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
 
@@ -169,6 +182,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         var statusResult = await _jobService.GetJobStatusAsync(createResult.JobId, "testuser");
@@ -176,6 +193,7 @@ public class JobServiceTests : IDisposable
         statusResult.Should().NotBeNull();
         statusResult!.JobId.Should().Be(createResult.JobId);
         statusResult.Status.Should().Be("created");
+        statusResult.Title.Should().Be("Test Job Title");
     }
 
     [Fact]
@@ -196,6 +214,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         _mockRepositoryService
             .Setup(r => r.RemoveCowCloneAsync(It.IsAny<string>()))
@@ -230,6 +252,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         
@@ -264,6 +290,10 @@ public class JobServiceTests : IDisposable
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
+        
+        _mockClaudeExecutor
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Test Job Title");
 
         await _jobService.CreateJobAsync(createRequest, "testuser");
         var userJobs = await _jobService.GetUserJobsAsync("testuser");
@@ -271,6 +301,7 @@ public class JobServiceTests : IDisposable
         userJobs.Should().NotBeNull();
         userJobs.Should().HaveCount(1);
         userJobs[0].User.Should().Be("testuser");
+        userJobs[0].Title.Should().Be("Test Job Title");
     }
 
     public void Dispose()

@@ -149,20 +149,25 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
         // Don't include the prompt here since we're piping it to stdin
 
-        foreach (var image in job.Images)
-        {
-            var imagePath = Path.Combine(job.CowPath, "images", image);
-            args.Add($"--image \"{imagePath}\"");
-        }
+        // Claude Code automatically detects and processes images in the working directory
+        // No explicit --image flag needed - images are uploaded to job.CowPath/images/
+        // and Claude Code will find them automatically when analyzing the workspace
 
         // Note: Claude CLI doesn't support --timeout option
         // Timeout should be handled by the job service itself
 
-        // Add cidx-aware system prompt if cidx is enabled and ready
-        if (job.Options.CidxAware && IsCidxReady(job.CowPath))
+        // Add cidx-aware system prompt based on cidx configuration
+        if (job.Options.CidxAware)
         {
+            // If cidx is enabled, check if it's ready and generate appropriate prompt
             var systemPrompt = await GenerateCidxSystemPromptAsync(job.CowPath);
             args.Add($"--append-system-prompt \"{systemPrompt}\"");
+        }
+        else
+        {
+            // If cidx is explicitly disabled, add a prompt to NOT mention cidx
+            var disabledPrompt = "CIDX SEMANTIC SEARCH DISABLED\\n\\nCidx semantic search has been disabled for this task. Use traditional search tools only:\\n- grep -r \"pattern\" .\\n- find . -name \"*.ext\" -exec grep \"pattern\" {} \\;\\n- rg \"pattern\" --type language\\n\\nDo NOT mention cidx, semantic search, or any cidx-related commands in your response.";
+            args.Add($"--append-system-prompt \"{disabledPrompt}\"");
         }
 
         return string.Join(" ", args);
@@ -292,6 +297,15 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             _logger.LogInformation("Starting cidx operations for job {JobId}", job.Id);
             job.Status = JobStatus.CidxIndexing;
             job.CidxStatus = "starting";
+
+            // Fix cidx configuration for the newly CoWed repository
+            _logger.LogInformation("Fixing cidx configuration for job {JobId}", job.Id);
+            var fixConfigResult = await ExecuteCidxCommandAsync("fix-config --force", job.CowPath, userInfo, cancellationToken);
+            if (fixConfigResult.ExitCode != 0)
+            {
+                _logger.LogWarning("Cidx fix-config failed for job {JobId}: {Output}", job.Id, fixConfigResult.Output);
+                // Continue anyway as this might not be critical
+            }
 
             // Start cidx container
             var startResult = await ExecuteCidxCommandAsync("start", job.CowPath, userInfo, cancellationToken);
@@ -534,6 +548,136 @@ Check cidx status periodically with: cidx status";
         catch
         {
             return "Service unavailable";
+        }
+    }
+
+    public async Task<string> GenerateJobTitleAsync(string prompt, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Generating job title for prompt");
+
+            var titlePrompt = $@"Please create a short, descriptive title (max 60 characters) for this task/prompt. The title should capture the main intent or action being requested. Return only the title, nothing else.
+
+Prompt to summarize:
+{prompt}";
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = _claudeCommand.Split(' ')[0], // Get the command (e.g., "claude")
+                Arguments = string.Join(" ", _claudeCommand.Split(' ').Skip(1)), // Get all args
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = processInfo };
+            
+            var outputBuilder = new StringBuilder();
+            var errorBuilder = new StringBuilder();
+
+            process.OutputDataReceived += (sender, e) =>
+            {
+                if (e.Data != null)
+                {
+                    outputBuilder.AppendLine(e.Data);
+                }
+            };
+
+            process.ErrorDataReceived += (sender, e) =>
+            {
+                if (e.Data != null)
+                {
+                    errorBuilder.AppendLine(e.Data);
+                }
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            // Write the title generation prompt to stdin
+            await process.StandardInput.WriteAsync(titlePrompt);
+            process.StandardInput.Close();
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            var output = outputBuilder.ToString().Trim();
+            var error = errorBuilder.ToString();
+
+            if (process.ExitCode == 0 && !string.IsNullOrEmpty(output))
+            {
+                // Clean up the title - take first line and limit to 60 characters
+                var title = output.Split('\n')[0].Trim();
+                if (title.Length > 60)
+                {
+                    title = title.Substring(0, 57) + "...";
+                }
+                
+                _logger.LogInformation("Generated job title: {Title}", title);
+                return title;
+            }
+            else
+            {
+                _logger.LogWarning("Failed to generate job title, using fallback. Exit code: {ExitCode}, Error: {Error}", 
+                    process.ExitCode, error);
+                return GenerateFallbackTitle(prompt);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating job title, using fallback");
+            return GenerateFallbackTitle(prompt);
+        }
+    }
+
+    private string GenerateFallbackTitle(string prompt)
+    {
+        // Create a simple fallback title from the first part of the prompt
+        var title = prompt.Length > 60 ? prompt.Substring(0, 57) + "..." : prompt;
+        
+        // Remove newlines and clean up
+        title = title.Replace('\n', ' ').Replace('\r', ' ');
+        while (title.Contains("  "))
+        {
+            title = title.Replace("  ", " ");
+        }
+        
+        return title.Trim();
+    }
+
+    public async Task<(int ExitCode, string Output)> StopCidxAsync(string workspacePath, string username, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Stopping cidx containers for workspace {WorkspacePath} by user {Username}", workspacePath, username);
+            
+            var userInfo = GetUserInfo(username);
+            if (userInfo == null)
+            {
+                _logger.LogError("User '{Username}' not found for cidx stop operation", username);
+                return (-1, $"User '{username}' not found");
+            }
+
+            var result = await ExecuteCidxCommandAsync("stop", workspacePath, userInfo, cancellationToken);
+            
+            if (result.ExitCode == 0)
+            {
+                _logger.LogInformation("Successfully stopped cidx containers for workspace {WorkspacePath}", workspacePath);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to stop cidx containers for workspace {WorkspacePath}: {Output}", workspacePath, result.Output);
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping cidx containers for workspace {WorkspacePath}", workspacePath);
+            return (-1, $"Error stopping cidx: {ex.Message}");
         }
     }
 

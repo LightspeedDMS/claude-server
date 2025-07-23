@@ -1,27 +1,23 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeBatchServer.Core.Services;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using System.Security.Claims;
 
 namespace ClaudeBatchServer.Api.Controllers;
 
 [ApiController]
 [Route("repositories")]
+[Authorize]
 public class RepositoriesController : ControllerBase
 {
     private readonly IRepositoryService _repositoryService;
     private readonly ILogger<RepositoriesController> _logger;
-    private readonly IConfiguration _configuration;
 
-    public RepositoriesController(IRepositoryService repositoryService, ILogger<RepositoriesController> logger, IConfiguration configuration)
+    public RepositoriesController(IRepositoryService repositoryService, ILogger<RepositoriesController> logger)
     {
         _repositoryService = repositoryService;
         _logger = logger;
-        _configuration = configuration;
     }
 
     [HttpGet]
@@ -40,29 +36,16 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpPost("register")]
-    [AllowAnonymous]
+    [Authorize]
     public async Task<ActionResult<RegisterRepositoryResponse>> RegisterRepository([FromBody] RegisterRepositoryRequest request)
     {
         try
         {
-            // Manual JWT validation as temporary workaround
-            var authHeader = HttpContext.Request.Headers.Authorization.FirstOrDefault();
-            _logger.LogInformation("RegisterRepository called for {Name} from {GitUrl}. Authorization header: {AuthHeader}", request.Name, request.GitUrl, authHeader);
-            
-            string? username = null;
-            
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                var token = authHeader.Substring(7); // Remove "Bearer " prefix
-                username = ValidateJwtTokenManually(token);
-                _logger.LogInformation("Manual JWT validation returned username: {Username}", username);
-            }
-            
+            var username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
-            {
-                _logger.LogWarning("Username is null or empty after manual JWT validation, returning Unauthorized");
                 return Unauthorized();
-            }
+
+            _logger.LogInformation("RegisterRepository called for {Name} from {GitUrl} by user {Username}", request.Name, request.GitUrl, username);
 
             if (string.IsNullOrWhiteSpace(request.Name))
                 return BadRequest("Repository name is required");
@@ -101,29 +84,16 @@ public class RepositoriesController : ControllerBase
     }
 
     [HttpDelete("{repoName}")]
-    [AllowAnonymous]
+    [Authorize]
     public async Task<ActionResult<UnregisterRepositoryResponse>> UnregisterRepository(string repoName)
     {
         try
         {
-            // Manual JWT validation as temporary workaround
-            var authHeader = HttpContext.Request.Headers.Authorization.FirstOrDefault();
-            _logger.LogInformation("UnregisterRepository called for {RepoName}. Authorization header: {AuthHeader}", repoName, authHeader);
-            
-            string? username = null;
-            
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                var token = authHeader.Substring(7); // Remove "Bearer " prefix
-                username = ValidateJwtTokenManually(token);
-                _logger.LogInformation("Manual JWT validation returned username: {Username}", username);
-            }
-            
+            var username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
-            {
-                _logger.LogWarning("Username is null or empty after manual JWT validation, returning Unauthorized");
                 return Unauthorized();
-            }
+
+            _logger.LogInformation("UnregisterRepository called for {RepoName} by user {Username}", repoName, username);
 
             if (string.IsNullOrWhiteSpace(repoName))
                 return BadRequest("Repository name is required");
@@ -151,39 +121,29 @@ public class RepositoriesController : ControllerBase
         }
     }
 
-    private string? ValidateJwtTokenManually(string token)
+    private string? GetCurrentUsername()
     {
-        try
+        // FIXED: Robust username extraction from JWT claims
+        // First try the standard Identity.Name
+        var identityName = HttpContext.User.Identity?.Name;
+        if (!string.IsNullOrEmpty(identityName))
+            return identityName;
+        
+        // Fallback: Search claims directly (for debugging JWT issues)
+        var nameClaim = HttpContext.User.Claims.FirstOrDefault(c => 
+            c.Type == ClaimTypes.Name || 
+            c.Type == "name" ||
+            c.Type == ClaimTypes.NameIdentifier);
+        
+        var username = nameClaim?.Value;
+        
+        // Debug logging for authentication issues
+        if (string.IsNullOrEmpty(username))
         {
-            var jwtKey = _configuration["Jwt:Key"];
-            if (string.IsNullOrEmpty(jwtKey))
-                return null;
-                
-            var key = Encoding.ASCII.GetBytes(jwtKey);
-            var tokenHandler = new JwtSecurityTokenHandler();
-            
-            // Validate the token
-            var validationParameters = new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = false,
-                ValidateAudience = false,
-                ClockSkew = TimeSpan.Zero
-            };
-            
-            var principal = tokenHandler.ValidateToken(token, validationParameters, out SecurityToken validatedToken);
-            
-            // Extract username from claims
-            var jwtToken = validatedToken as JwtSecurityToken;
-            var usernameClaim = jwtToken?.Claims?.FirstOrDefault(c => c.Type == "unique_name");
-            
-            return usernameClaim?.Value;
+            _logger.LogWarning("No username found in JWT claims. Available claims: {Claims}", 
+                string.Join(", ", HttpContext.User.Claims.Select(c => $"{c.Type}={c.Value}")));
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Manual JWT validation failed: {Message}", ex.Message);
-            return null;
-        }
+        
+        return username;
     }
 }

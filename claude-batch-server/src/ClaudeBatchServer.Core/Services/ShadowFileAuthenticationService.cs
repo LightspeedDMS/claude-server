@@ -15,6 +15,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     private readonly string _jwtKey;
     private readonly int _jwtExpiryHours;
     private readonly string _shadowFilePath;
+    private readonly string _passwdFilePath;
     private readonly HashSet<string> _revokedTokens = new();
 
     public ShadowFileAuthenticationService(IConfiguration configuration)
@@ -23,6 +24,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         _jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
         _jwtExpiryHours = int.Parse(_configuration["Jwt:ExpiryHours"] ?? "24");
         _shadowFilePath = _configuration["Auth:ShadowFilePath"] ?? "/etc/shadow";
+        _passwdFilePath = _configuration["Auth:PasswdFilePath"] ?? "/etc/passwd";
     }
 
     public async Task<LoginResponse?> AuthenticateAsync(LoginRequest request)
@@ -141,7 +143,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     {
         try
         {
-            var passwdContent = await File.ReadAllTextAsync("/etc/passwd");
+            var passwdContent = await File.ReadAllTextAsync(_passwdFilePath);
             return passwdContent.Split('\n')
                 .Any(line => line.StartsWith($"{username}:"));
         }
@@ -293,8 +295,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         var tokenString = tokenHandler.WriteToken(token);
         
         // Log JWT details for debugging
-        System.Console.WriteLine($"Generated JWT with key: {_jwtKey} (length: {_jwtKey.Length})");
-        System.Console.WriteLine($"Token: {tokenString}");
+        System.Console.WriteLine($"[DEBUG] Generated JWT with key: {_jwtKey} (length: {_jwtKey.Length})");
+        System.Console.WriteLine($"[DEBUG] Token: {tokenString}");
+        System.Console.WriteLine($"[DEBUG] Key for validation: {Convert.ToBase64String(key)}");
         
         return tokenString;
     }

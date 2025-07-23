@@ -2,26 +2,21 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeBatchServer.Core.Services;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
 
 namespace ClaudeBatchServer.Api.Controllers;
 
 [ApiController]
 [Route("jobs")]
-//[Authorize] // Temporarily comment out for debugging
+[Authorize]
 public class JobsController : ControllerBase
 {
     private readonly IJobService _jobService;
     private readonly ILogger<JobsController> _logger;
-    private readonly IConfiguration _configuration;
 
-    public JobsController(IJobService jobService, ILogger<JobsController> logger, IConfiguration configuration)
+    public JobsController(IJobService jobService, ILogger<JobsController> logger)
     {
         _jobService = jobService;
         _logger = logger;
-        _configuration = configuration;
     }
 
     [HttpPost]
@@ -29,24 +24,9 @@ public class JobsController : ControllerBase
     {
         try
         {
-            // Manual JWT validation as temporary workaround
-            var authHeader = HttpContext.Request.Headers.Authorization.FirstOrDefault();
-            _logger.LogInformation("CreateJob called. Authorization header: {AuthHeader}", authHeader);
-            
-            string? username = null;
-            
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                var token = authHeader.Substring(7); // Remove "Bearer " prefix
-                username = ValidateJwtTokenManually(token);
-                _logger.LogInformation("Manual JWT validation returned username: {Username}", username);
-            }
-            
+            var username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
-            {
-                _logger.LogWarning("Username is null or empty after manual JWT validation, returning Unauthorized");
                 return Unauthorized();
-            }
 
             var result = await _jobService.CreateJobAsync(request, username);
             return CreatedAtAction(nameof(GetJobStatus), new { jobId = result.JobId }, result);
@@ -62,10 +42,11 @@ public class JobsController : ControllerBase
         }
     }
 
-    [HttpPost("{jobId}/images")]
-    public async Task<ActionResult<ImageUploadResponse>> UploadImage(
+    [HttpPost("{jobId}/files")]
+    public async Task<ActionResult<FileUploadResponse>> UploadFile(
         Guid jobId, 
-        IFormFile file)
+        IFormFile file,
+        [FromQuery] bool overwrite = false)
     {
         try
         {
@@ -76,14 +57,20 @@ public class JobsController : ControllerBase
             if (file == null || file.Length == 0)
                 return BadRequest("No file provided");
 
-            var allowedExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+            // Support all file types - no restrictions for universal file upload
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
             
-            if (!allowedExtensions.Contains(extension))
-                return BadRequest("Invalid file type. Only image files are allowed.");
+            // Security validation for file name
+            if (!SecurityUtils.IsValidPath(file.FileName))
+                return BadRequest("Invalid file name contains dangerous characters");
+
+            // Check file size limit (50MB max)
+            const long maxFileSize = 50 * 1024 * 1024; 
+            if (file.Length > maxFileSize)
+                return BadRequest($"File size exceeds maximum allowed size of {maxFileSize / 1024 / 1024}MB");
 
             using var stream = file.OpenReadStream();
-            var result = await _jobService.UploadImageAsync(jobId, username, file.FileName, stream);
+            var result = await _jobService.UploadFileAsync(jobId, username, file.FileName, stream, overwrite);
             
             return Ok(result);
         }
@@ -97,7 +84,7 @@ public class JobsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error uploading image for job {JobId}", jobId);
+            _logger.LogError(ex, "Error uploading file for job {JobId}", jobId);
             return StatusCode(500, "Internal server error");
         }
     }
@@ -107,16 +94,7 @@ public class JobsController : ControllerBase
     {
         try
         {
-            // Manual JWT validation as temporary workaround
-            var authHeader = HttpContext.Request.Headers.Authorization.FirstOrDefault();
-            string? username = null;
-            
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                var token = authHeader.Substring(7); // Remove "Bearer " prefix
-                username = ValidateJwtTokenManually(token);
-            }
-            
+            var username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
                 return Unauthorized();
 
@@ -148,16 +126,7 @@ public class JobsController : ControllerBase
     {
         try
         {
-            // Manual JWT validation as temporary workaround
-            var authHeader = HttpContext.Request.Headers.Authorization.FirstOrDefault();
-            string? username = null;
-            
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                var token = authHeader.Substring(7); // Remove "Bearer " prefix
-                username = ValidateJwtTokenManually(token);
-            }
-            
+            var username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
                 return Unauthorized();
 
@@ -224,44 +193,40 @@ public class JobsController : ControllerBase
         }
     }
 
+    [HttpPost("{jobId}/cancel")]
+    public async Task<ActionResult<CancelJobResponse>> CancelJob(Guid jobId)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            var result = await _jobService.CancelJobAsync(jobId, username);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling job {JobId}", jobId);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     private string? GetCurrentUsername()
     {
         return HttpContext.User.Identity?.Name;
     }
     
-    private string? ValidateJwtTokenManually(string token)
-    {
-        try
-        {
-            var jwtKey = _configuration["Jwt:Key"];
-            if (string.IsNullOrEmpty(jwtKey))
-                return null;
-                
-            var key = Encoding.ASCII.GetBytes(jwtKey);
-            var tokenHandler = new JwtSecurityTokenHandler();
-            
-            // Validate the token
-            var validationParameters = new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = false,
-                ValidateAudience = false,
-                ClockSkew = TimeSpan.Zero
-            };
-            
-            var principal = tokenHandler.ValidateToken(token, validationParameters, out SecurityToken validatedToken);
-            
-            // Extract username from claims
-            var jwtToken = validatedToken as JwtSecurityToken;
-            var usernameClaim = jwtToken?.Claims?.FirstOrDefault(c => c.Type == "unique_name");
-            
-            return usernameClaim?.Value;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Manual JWT validation failed: {Message}", ex.Message);
-            return null;
-        }
-    }
 }

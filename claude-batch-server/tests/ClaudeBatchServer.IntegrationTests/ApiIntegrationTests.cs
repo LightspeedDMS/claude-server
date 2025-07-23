@@ -175,7 +175,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
         content.Add(fileContent, "file", "test.png");
 
-        var response = await _client.PostAsync($"/jobs/{jobId}/images", content);
+        var response = await _client.PostAsync($"/jobs/{jobId}/files", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }

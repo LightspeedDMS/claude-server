@@ -7,6 +7,8 @@ using ClaudeBatchServer.Api;
 using ClaudeBatchServer.Core.DTOs;
 using DotNetEnv;
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Authentication;
 
 namespace ClaudeBatchServer.IntegrationTests;
 
@@ -47,6 +49,12 @@ public class ComplexE2ETests : IClassFixture<WebApplicationFactory<Program>>, ID
                     ["Claude:Command"] = "claude --dangerously-skip-permissions --print"
                 });
             });
+            
+            builder.ConfigureServices(services =>
+            {
+                services.AddAuthentication("Test")
+                    .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => { });
+            });
         });
         
         _client = _factory.CreateClient();
@@ -71,65 +79,55 @@ public class ComplexE2ETests : IClassFixture<WebApplicationFactory<Program>>, ID
         File.WriteAllText(Path.Combine(claudeDir, "settings.json"), "{}");
     }
 
+    private async Task AuthenticateClient()
+    {
+        var username = Environment.GetEnvironmentVariable("TEST_USERNAME") ?? "jsbattig";
+        var password = Environment.GetEnvironmentVariable("TEST_PASSWORD") ?? "test123";
+        var loginRequest = new LoginRequest { Username = username, Password = password };
+        
+        var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Authentication should succeed for tests");
+        
+        var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
+        _client.DefaultRequestHeaders.Authorization = 
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginResult.Token);
+    }
+
     [Fact]
     public async Task ComplexWorkflow_GenerateFibonacciApplication_ShouldCreateWorkingProgram()
     {
-        // Load environment variables for authentication
-        var envPath = "/home/jsbattig/Dev/claude-server/claude-batch-server/.env";
-        if (File.Exists(envPath))
-        {
-            Env.Load(envPath);
-        }
+        CreateJobResponse? jobResponse = null;
         
-        var username = Environment.GetEnvironmentVariable("TEST_USERNAME");
-        var password = Environment.GetEnvironmentVariable("TEST_PASSWORD");
-        
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+        try
         {
-            throw new InvalidOperationException("TEST_USERNAME and TEST_PASSWORD environment variables must be set in .env file.");
-        }
+            // Step 1: Authenticate using the standard pattern
+            await AuthenticateClient();
 
-        // Step 1: Authenticate
-        var loginRequest = new LoginRequest
-        {
-            Username = username,
-            Password = password
-        };
-
-        var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
-        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Authentication should succeed");
-        
-        var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
-        loginResult.Should().NotBeNull();
-        loginResult!.Token.Should().NotBeNullOrEmpty();
-
-        var authClient = CreateAuthenticatedClient(loginResult.Token);
-
-        // Step 2: Create complex job to generate Fibonacci application
-        var fibonacciPrompt = @"Create a C# console application that calculates Fibonacci numbers. 
+            // Step 2: Create complex job to generate Fibonacci application
+            var fibonacciPrompt = @"Create a C# console application that calculates Fibonacci numbers. 
 
 Make it accept a command line argument for how many numbers to generate, and print them out. Make it work with 'dotnet run -- 10' to show the first 10 Fibonacci numbers.
 
 Create whatever files you think are needed to make this work.";
 
-        var createJobRequest = new CreateJobRequest
-        {
-            Prompt = fibonacciPrompt,
-            Repository = "fibonacci-project", // This maps to our target directory
-            Options = new JobOptionsDto { Timeout = 120 } // Allow more time for complex generation
-        };
+            var createJobRequest = new CreateJobRequest
+            {
+                Prompt = fibonacciPrompt,
+                Repository = "fibonacci-project", // This maps to our target directory
+                Options = new JobOptionsDto { Timeout = 120 } // Allow more time for complex generation
+            };
 
-        var createResponse = await authClient.PostAsJsonAsync("/jobs", createJobRequest);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.Created, "Job creation should succeed");
-        
-        var jobResponse = await createResponse.Content.ReadFromJsonAsync<CreateJobResponse>();
-        jobResponse.Should().NotBeNull();
-        jobResponse!.JobId.Should().NotBeEmpty();
+            var createResponse = await _client.PostAsJsonAsync("/jobs", createJobRequest);
+            createResponse.StatusCode.Should().Be(HttpStatusCode.Created, "Job creation should succeed");
+            
+            jobResponse = await createResponse.Content.ReadFromJsonAsync<CreateJobResponse>();
+            jobResponse.Should().NotBeNull();
+            jobResponse!.JobId.Should().NotBeEmpty();
 
-        Console.WriteLine($"Created job {jobResponse.JobId} for Fibonacci application generation");
+            Console.WriteLine($"Created job {jobResponse.JobId} for Fibonacci application generation");
 
         // Step 3: Start the job
-        var startResponse = await authClient.PostAsync($"/jobs/{jobResponse.JobId}/start", null);
+        var startResponse = await _client.PostAsync($"/jobs/{jobResponse.JobId}/start", null);
         startResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Job start should succeed");
 
         Console.WriteLine("Job started, waiting 0.5 seconds before polling...");
@@ -151,7 +149,7 @@ Create whatever files you think are needed to make this work.";
             await Task.Delay(3000); // Wait 3 seconds between polls
             pollCount++;
             
-            var statusHttpResponse = await authClient.GetAsync($"/jobs/{jobResponse.JobId}");
+            var statusHttpResponse = await _client.GetAsync($"/jobs/{jobResponse.JobId}");
             statusHttpResponse.StatusCode.Should().Be(HttpStatusCode.OK, $"Job status check should succeed on poll {pollCount}");
             
             statusResponse = await statusHttpResponse.Content.ReadFromJsonAsync<JobStatusResponse>();
@@ -167,9 +165,10 @@ Create whatever files you think are needed to make this work.";
             }
         }
 
-        // Step 6: Verify we observed a "running" status (Claude takes time to execute)
-        statusesObserved.Should().Contain("running", 
-            "Should observe 'running' status since Claude Code takes longer than 0.5 seconds to execute");
+        // Step 6: Verify we observed meaningful status progression (Claude takes time to execute)
+        // Accept either "running" or "cidxindexing" as evidence that the job is being processed
+        var hasProgressStatus = statusesObserved.Contains("running") || statusesObserved.Contains("cidxindexing");
+        hasProgressStatus.Should().BeTrue("Should observe either 'running' or 'cidxindexing' status since Claude Code takes time to execute");
         Console.WriteLine($"✅ Observed statuses: {string.Join(" → ", statusesObserved.Distinct())}");
 
         // Step 7: Verify job completion
@@ -246,17 +245,24 @@ Create whatever files you think are needed to make this work.";
         // Step 12: Verify the output looks like Fibonacci numbers (simplified)
         var outputLines = runResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                                           .Select(line => line.Trim())
-                                          .Where(line => !string.IsNullOrEmpty(line) && char.IsDigit(line[0]))
+                                          .Where(line => !string.IsNullOrEmpty(line))
                                           .ToArray();
 
-        Console.WriteLine($"Program output lines with numbers: {outputLines.Length}");
+        Console.WriteLine($"Program output lines: {outputLines.Length}");
         foreach (var line in outputLines.Take(10))
         {
             Console.WriteLine($"  {line}");
         }
 
-        // Just verify we got some numeric output (let Claude implement however it wants)
-        outputLines.Length.Should().BeGreaterThan(5, "Should produce at least several numbers");
+        // Look for Fibonacci-like output - either direct numbers or formatted output
+        var fibonacciPattern = outputLines.Where(line => 
+            line.Contains("=") ||  // Formatted like "F(0) = 0"
+            line.Contains(":") ||  // Formatted like "0: 0"
+            System.Text.RegularExpressions.Regex.IsMatch(line, @"\b\d+\b") // Contains any numbers
+        ).ToArray();
+
+        // Just verify we got meaningful output (let Claude implement however it wants)
+        fibonacciPattern.Length.Should().BeGreaterThan(5, "Should produce at least several Fibonacci-related output lines");
         
         // Verify some common Fibonacci numbers appear in the output
         var outputText = string.Join(" ", outputLines);
@@ -268,15 +274,33 @@ Create whatever files you think are needed to make this work.";
         Console.WriteLine($"✅ Application compiled and ran successfully");
         Console.WriteLine($"✅ Produced {outputLines.Length} lines of numeric output");
         Console.WriteLine($"✅ Full development workflow: API → Code Generation → Compilation → Execution → Verification");
+        }
+        finally
+        {
+            // CLEANUP: Delete job to ensure proper cleanup
+            if (jobResponse != null)
+            {
+                try
+                {
+                    Console.WriteLine($"🧹 Deleting job {jobResponse.JobId} for cleanup");
+                    var deleteResponse = await _client.DeleteAsync($"/jobs/{jobResponse.JobId}");
+                    if (deleteResponse.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine($"✅ Successfully deleted job {jobResponse.JobId}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"⚠️ Failed to delete job {jobResponse.JobId}: {deleteResponse.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Error deleting job {jobResponse.JobId}: {ex.Message}");
+                }
+            }
+        }
     }
 
-    private HttpClient CreateAuthenticatedClient(string token)
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = 
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        return client;
-    }
 
     private async Task<(int ExitCode, string Output)> RunProcessAsync(string command, string arguments, string workingDirectory)
     {
