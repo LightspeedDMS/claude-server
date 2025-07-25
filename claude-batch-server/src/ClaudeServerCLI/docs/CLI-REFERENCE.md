@@ -53,21 +53,21 @@ claude-server auth login [OPTIONS]
 ```
 
 **Options:**
-- `--email`, `-e`: Email address (required)
-- `--password`, `-p`: Password (will prompt if not provided)
-- `--profile`: Profile name (default: "default")
-- `--server-url`: Override server URL for this login
+- `--username`, `--usr`, `-u`: Username (required)
+- `--password`, `--pwd`, `-p`: Password (required)
+- `--profile`, `-prof`: Profile name (default: "default")
+- `--hashed`, `-h`: Indicates password is already hashed (default: false)
 
 **Examples:**
 ```bash
 # Basic login
-claude-server auth login --email user@example.com
+claude-server auth login --username testuser --password mypassword
 
 # Login with specific profile
-claude-server auth login --email work@company.com --profile work
+claude-server auth login --username workuser --password workpass --profile work
 
-# Login to different server
-claude-server auth login --email user@dev.com --server-url https://dev-server.com
+# Login with pre-hashed password (for security over HTTP)
+claude-server auth login --username testuser --password '$6$salt$hash...' --hashed
 ```
 
 ### `auth logout`
@@ -94,33 +94,18 @@ claude-server auth logout --profile work
 claude-server auth logout --all
 ```
 
-### `auth profiles`
+### `auth whoami`
 
-List and manage authentication profiles.
+Show information about the currently authenticated user.
 
 ```bash
-claude-server auth profiles [SUBCOMMAND] [OPTIONS]
+claude-server auth whoami
 ```
-
-**Subcommands:**
-- `list`: List all profiles (default)
-- `show`: Show profile details
-- `delete`: Delete a profile
-- `switch`: Switch active profile
 
 **Examples:**
 ```bash
-# List all profiles
-claude-server auth profiles
-
-# Show specific profile
-claude-server auth profiles show --profile work
-
-# Switch to different profile
-claude-server auth profiles switch --profile development
-
-# Delete a profile
-claude-server auth profiles delete --profile old-profile
+# Show current user information
+claude-server auth whoami
 ```
 
 ## Repository Management

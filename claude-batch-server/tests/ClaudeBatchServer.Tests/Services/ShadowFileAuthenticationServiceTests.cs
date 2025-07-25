@@ -17,7 +17,11 @@ public class ShadowFileAuthenticationServiceTests
         _mockConfiguration.Setup(c => c["Jwt:Key"]).Returns("ThisIsATestKeyThatIsLongEnoughForTesting");
         _mockConfiguration.Setup(c => c["Jwt:ExpiryHours"]).Returns("24");
         
-        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object);
+        // Create test signing key
+        var keyBytes = System.Text.Encoding.ASCII.GetBytes("ThisIsATestKeyThatIsLongEnoughForTesting");
+        var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
+        
+        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, signingKey);
     }
 
     [Fact]

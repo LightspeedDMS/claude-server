@@ -24,8 +24,11 @@ public class FilesController : ControllerBase
         _logger = logger;
     }
 
-    [HttpGet]
-    public async Task<ActionResult<List<FileInfoResponse>>> GetFiles(Guid jobId, [FromQuery] string? path = null)
+
+    [HttpGet("directories")]
+    public async Task<ActionResult<List<DirectoryInfoResponse>>> GetDirectories(
+        Guid jobId, 
+        [FromQuery] string? path = null)
     {
         try
         {
@@ -37,7 +40,58 @@ public class FilesController : ControllerBase
             if (job == null)
                 return NotFound("Job not found");
 
-            var files = await _repositoryService.GetFilesAsync(job.CowPath, path);
+            var directories = await _repositoryService.GetDirectoriesAsync(job.CowPath, path ?? "");
+            
+            if (directories == null)
+                return NotFound("Path not found");
+
+            var response = directories.Select(d => new DirectoryInfoResponse
+            {
+                Name = d.Name,
+                Path = d.Path,
+                Modified = d.Modified,
+                HasSubdirectories = d.HasSubdirectories,
+                FileCount = d.FileCount
+            }).ToList();
+
+            return Ok(response);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting directories for job {JobId}", jobId);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    [HttpGet("files")]
+    public async Task<ActionResult<List<FileInfoResponse>>> GetFilesInDirectory(
+        Guid jobId, 
+        [FromQuery] string? path = null,
+        [FromQuery] string? mask = null)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            var job = await _jobService.GetJobStatusAsync(jobId, username);
+            if (job == null)
+                return NotFound("Job not found");
+
+            // Validate mask parameter for security
+            if (!string.IsNullOrEmpty(mask) && !IsValidFileMask(mask))
+                return BadRequest("Invalid file mask contains dangerous characters");
+
+            var files = await _repositoryService.GetFilesInDirectoryAsync(job.CowPath, path ?? "", mask);
+            
+            if (files == null)
+                return NotFound("Path not found");
+
             var response = files.Select(f => new FileInfoResponse
             {
                 Name = f.Name,
@@ -55,7 +109,7 @@ public class FilesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting files for job {JobId}", jobId);
+            _logger.LogError(ex, "Error getting files for job {JobId} in path {Path}", jobId, path);
             return StatusCode(500, "Internal server error");
         }
     }
@@ -136,6 +190,16 @@ public class FilesController : ControllerBase
     private string? GetCurrentUsername()
     {
         return HttpContext.User.Identity?.Name;
+    }
+
+    private bool IsValidFileMask(string mask)
+    {
+        // Check for dangerous path characters
+        if (mask.Contains("..") || mask.Contains("/") || mask.Contains("\\"))
+            return false;
+
+        // Allow only alphanumeric characters, dots, asterisks, commas, and spaces
+        return mask.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '*' || c == ',' || c == ' ');
     }
 
     private string GetContentType(string fileName)

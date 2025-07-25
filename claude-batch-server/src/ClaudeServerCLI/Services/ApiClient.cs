@@ -232,14 +232,14 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<IEnumerable<JobFile>> GetJobFilesAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting files for job: {JobId}", jobId);
-        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"api/jobs/{jobId}/files", cancellationToken);
+        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"api/jobs/{jobId}/files/files?path=", cancellationToken);
         return response?.Select(MapJobFile) ?? Enumerable.Empty<JobFile>();
     }
 
     public async Task<Stream> DownloadJobFileAsync(string jobId, string fileName, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Downloading file for job: {JobId}, file: {FileName}", jobId, fileName);
-        var response = await SendAsync($"api/jobs/{jobId}/files/{Uri.EscapeDataString(fileName)}", HttpMethod.Get, null, cancellationToken);
+        var response = await SendAsync($"api/jobs/{jobId}/files/download?path={Uri.EscapeDataString(fileName)}", HttpMethod.Get, null, cancellationToken);
         return await response.Content.ReadAsStreamAsync(cancellationToken);
     }
 

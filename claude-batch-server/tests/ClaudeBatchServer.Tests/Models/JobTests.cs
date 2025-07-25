@@ -14,7 +14,7 @@ public class JobTests
         job.Username.Should().BeEmpty();
         job.Prompt.Should().BeEmpty();
         job.Repository.Should().BeEmpty();
-        job.Images.Should().NotBeNull().And.BeEmpty();
+        job.UploadedFiles.Should().NotBeNull().And.BeEmpty();
         job.Status.Should().Be(JobStatus.Created);
         job.Output.Should().BeEmpty();
         job.ExitCode.Should().BeNull();
@@ -92,16 +92,16 @@ public class JobTests
     }
 
     [Fact]
-    public void Job_Images_ShouldBeModifiable()
+    public void Job_UploadedFiles_ShouldBeModifiable()
     {
         var job = new Job();
 
-        job.Images.Add("image1.png");
-        job.Images.Add("image2.jpg");
+        job.UploadedFiles.Add("document.pdf");
+        job.UploadedFiles.Add("script.py");
 
-        job.Images.Should().HaveCount(2);
-        job.Images.Should().Contain("image1.png");
-        job.Images.Should().Contain("image2.jpg");
+        job.UploadedFiles.Should().HaveCount(2);
+        job.UploadedFiles.Should().Contain("document.pdf");
+        job.UploadedFiles.Should().Contain("script.py");
     }
 
     [Fact]

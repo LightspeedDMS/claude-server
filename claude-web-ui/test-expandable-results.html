@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Expandable Results</title>
+    <link rel="stylesheet" href="/src/styles/main.css">
+    <style>
+        body {
+            padding: 20px;
+            background: var(--background-color);
+            font-family: var(--font-family);
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-job {
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Test Expandable Results UI</h1>
+        <p>Testing the expandable results functionality with different job statuses.</p>
+        
+        <div id="testJobsContainer"></div>
+    </div>
+
+    <script type="module">
+        import { JobListComponent } from '/src/components/job-list.js';
+
+        // Test data for different job statuses
+        const testJobs = [
+            {
+                jobId: "test-completed-1",
+                title: "Analyze API endpoints and document the architecture",
+                repository: "my-awesome-project",
+                status: "completed",
+                started: "2025-07-24T15:00:00Z",
+                completedAt: "2025-07-24T15:05:00Z",
+                exitCode: 0,
+                output: `# API Architecture Analysis
+
+The project follows a **REST API** architecture with the following key components:
+
+## Main Endpoints
+
+1. \`GET /api/users\` - Retrieve user list
+2. \`POST /api/users\` - Create new user
+3. \`PUT /api/users/{id}\` - Update user
+4. \`DELETE /api/users/{id}\` - Delete user
+
+## Code Examples
+
+\`\`\`javascript
+// User service implementation
+class UserService {
+    async getUsers() {
+        const response = await fetch('/api/users');
+        return response.json();
+    }
+    
+    async createUser(userData) {
+        return fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+    }
+}
+\`\`\`
+
+## Database Schema
+
+The users table includes:
+- **id**: Primary key (UUID)
+- **name**: User's full name  
+- **email**: Unique email address
+- **created_at**: Timestamp
+
+## Security Considerations
+
+- All endpoints require JWT authentication
+- Input validation using *JSON Schema*
+- Rate limiting implemented per user
+
+This analysis shows a well-structured API with proper security measures.`
+            },
+            {
+                jobId: "test-failed-1", 
+                title: "Run comprehensive test suite with coverage reporting",
+                repository: "test-project",
+                status: "failed",
+                started: "2025-07-24T14:45:00Z",
+                completedAt: "2025-07-24T14:50:00Z",
+                exitCode: 1,
+                output: `Error: Test execution failed
+
+❌ **Test Failures:**
+
+1. **AuthenticationTest.testInvalidCredentials**
+   - Expected: 401 Unauthorized
+   - Actual: 500 Internal Server Error
+   - Location: \`tests/auth.test.js:42\`
+
+2. **UserServiceTest.testCreateUserWithInvalidEmail**
+   - Expected validation error
+   - Actual: User created successfully
+   - Location: \`tests/user.test.js:87\`
+
+## Stack Trace
+
+\`\`\`
+AssertionError: Expected 401 but got 500
+    at AuthenticationTest.testInvalidCredentials (tests/auth.test.js:42:5)
+    at TestRunner.run (node_modules/test-framework/runner.js:123:8)
+    at async runTests (test-runner.js:45:3)
+\`\`\`
+
+## Suggestions
+
+- Check authentication middleware configuration
+- Validate email regex patterns
+- Review error handling in user creation endpoint
+
+**Total Tests:** 156 | **Failed:** 2 | **Passed:** 154`
+            },
+            {
+                jobId: "test-timeout-1",
+                title: "Generate comprehensive documentation for the entire codebase",
+                repository: "large-codebase",
+                status: "timeout", 
+                started: "2025-07-24T13:00:00Z",
+                completedAt: "2025-07-24T14:00:00Z",
+                exitCode: null,
+                output: `Documentation generation started...
+
+## Progress Before Timeout
+
+### Completed Sections:
+- ✅ **API Documentation** (45 endpoints documented)
+- ✅ **Database Schema** (12 tables documented)
+- ✅ **Authentication System** (JWT implementation documented)
+
+### In Progress:
+- 🔄 **Component Documentation** (67% complete)
+- 🔄 **Service Layer** (23% complete)
+
+### Pending:
+- ⏳ **Integration Tests Documentation**
+- ⏳ **Deployment Guide**
+- ⏳ **Performance Benchmarks**
+
+The process was terminated after reaching the **60-minute timeout limit**.
+
+**Generated Files:**
+- \`docs/api-reference.md\` (Complete)
+- \`docs/database-schema.md\` (Complete)  
+- \`docs/components/README.md\` (Partial)
+
+To complete the documentation, consider:
+1. Increasing timeout limit
+2. Running documentation in smaller batches
+3. Using parallel processing for independent sections`
+            },
+            {
+                jobId: "test-cancelled-1",
+                title: "Refactor legacy authentication system to use modern JWT",
+                repository: "legacy-system", 
+                status: "cancelled",
+                started: "2025-07-24T12:30:00Z",
+                completedAt: "2025-07-24T12:35:00Z",
+                exitCode: null,
+                output: `Authentication refactoring cancelled by user.
+
+## Work Completed Before Cancellation:
+
+### Analysis Phase ✅
+- Reviewed existing session-based auth
+- Identified 23 endpoints requiring updates
+- Created migration plan
+
+### Initial Changes ✅
+- Updated \`AuthService.js\` to support JWT
+- Modified login endpoint: \`POST /auth/login\`
+- Added JWT middleware configuration
+
+### Files Modified:
+\`\`\`
+src/services/AuthService.js (67 lines changed)
+src/middleware/auth.js (new file, 45 lines)
+config/jwt.config.js (new file, 23 lines)
+\`\`\`
+
+## Remaining Work:
+- Update 20 remaining authenticated endpoints
+- Migrate user sessions to JWT tokens
+- Update frontend authentication logic
+- Write migration tests
+
+**Note:** All changes have been committed to feature branch \`jwt-migration\` for future completion.`
+            }
+        ];
+
+        // Create a mock JobListComponent instance for testing
+        class TestJobListComponent extends JobListComponent {
+            constructor(container) {
+                super(container, {});
+                this.jobs = testJobs;
+                this.filteredJobs = testJobs;
+            }
+
+            async loadJobs() {
+                // Override to prevent API calls
+                this.renderJobs();
+            }
+
+            async init() {
+                this.render();
+                this.bindEvents();
+                await this.loadJobs();
+                // Don't start real monitoring
+            }
+        }
+
+        // Initialize the test
+        const container = document.getElementById('testJobsContainer');
+        const jobList = new TestJobListComponent(container);
+        
+        console.log('Test expandable results UI initialized');
+    </script>
+</body>
+</html>

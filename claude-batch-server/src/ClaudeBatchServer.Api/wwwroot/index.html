@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Batch Server - Job File Manager</title>
+    <link rel="stylesheet" href="css/filemanager.css">
+</head>
+<body>
+    <div id="app">
+        <header class="header">
+            <h1>Claude Batch Server - Job File Manager</h1>
+            <div class="job-selector">
+                <label for="jobSelect">Select Job:</label>
+                <select id="jobSelect">
+                    <option value="">Loading jobs...</option>
+                </select>
+                <button id="refreshJobs">Refresh</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- File Manager Container -->
+            <div id="fileManager" class="file-manager hidden">
+                <div class="toolbar">
+                    <div class="breadcrumb-container">
+                        <nav class="breadcrumb" id="breadcrumb">
+                            <span class="breadcrumb-item active">Root</span>
+                        </nav>
+                    </div>
+                    <div class="filter-container">
+                        <input type="text" id="fileFilter" placeholder="Filter files (*.js, *.ts, etc.)" />
+                        <button id="applyFilters">Apply</button>
+                        <button id="clearFilters">Clear</button>
+                        <div class="performance-info">
+                            <small>📊 Optimized for large repositories - directories load on-demand</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="file-manager-content">
+                    <!-- Left Panel: Directory Tree -->
+                    <div class="left-panel">
+                        <div class="panel-header">
+                            <h3>📁 Directories</h3>
+                        </div>
+                        <div id="directoryTree" class="directory-tree">
+                            <!-- Directory tree will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Splitter -->
+                    <div class="splitter"></div>
+
+                    <!-- Right Panel: File List -->
+                    <div class="right-panel">
+                        <div class="panel-header">
+                            <h3>📄 Files</h3>
+                            <div class="view-controls">
+                                <button id="listView" class="view-btn active">List</button>
+                                <button id="gridView" class="view-btn">Grid</button>
+                            </div>
+                        </div>
+                        <div id="fileList" class="file-list">
+                            <!-- File list will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Welcome message when no job is selected -->
+            <div id="welcomeMessage" class="welcome-message">
+                <h2>Welcome to Job File Manager</h2>
+                <p>Select a job from the dropdown above to browse its files.</p>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="loadingIndicator" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Loading files...</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- File Viewer Modal -->
+    <div id="fileViewerModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="fileViewerTitle">File Viewer</h3>
+                <button id="closeFileViewer" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="fileViewerContent" class="file-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="downloadFileBtn" class="btn btn-primary">Download</button>
+                <button id="closeFileViewerFooter" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay -->
+    <div id="overlay" class="overlay hidden"></div>
+
+    <script src="js/filemanager.js"></script>
+</body>
+</html>

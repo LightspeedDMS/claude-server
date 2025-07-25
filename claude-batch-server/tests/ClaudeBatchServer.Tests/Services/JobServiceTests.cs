@@ -31,9 +31,13 @@ public class JobServiceTests : IDisposable
         _mockConfiguration.Setup(c => c["Jobs:MaxConcurrent"]).Returns("5");
         _mockConfiguration.Setup(c => c["Jobs:TimeoutHours"]).Returns("24");
 
+        // Add mock for job persistence service
+        var mockJobPersistenceService = new Mock<IJobPersistenceService>();
+        
         _jobService = new JobService(
             _mockRepositoryService.Object,
             _mockClaudeExecutor.Object,
+            mockJobPersistenceService.Object,
             _mockConfiguration.Object,
             _mockLogger.Object);
     }
@@ -47,7 +51,7 @@ public class JobServiceTests : IDisposable
             Prompt = "Test prompt",
             Repository = "test-repo",
             Images = new List<string> { "image1.png" },
-            Options = new JobOptionsDto { Timeout = 300 }
+            Options = new JobOptionsDto { Timeout = 300, CidxAware = false }
         };
 
         _mockRepositoryService
@@ -60,7 +64,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Generated Test Title");
 
         var result = await _jobService.CreateJobAsync(request, "testuser");
@@ -78,7 +82,8 @@ public class JobServiceTests : IDisposable
         var request = new CreateJobRequest
         {
             Repository = "nonexistent-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -98,7 +103,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Prompt = "Test prompt",
-            Repository = "test-repo"
+            Repository = "test-repo",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -111,7 +117,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
@@ -140,7 +146,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Repository = "test-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -153,7 +160,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
@@ -171,7 +178,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Repository = "test-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -184,7 +192,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
@@ -203,7 +211,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Repository = "test-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -216,7 +225,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         _mockRepositoryService
@@ -238,7 +247,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Repository = "test-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         // Create a test job directory that actually exists
@@ -254,7 +264,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
@@ -279,7 +289,8 @@ public class JobServiceTests : IDisposable
         var createRequest = new CreateJobRequest
         {
             Repository = "test-repo",
-            Prompt = "Test prompt"
+            Prompt = "Test prompt",
+            Options = new JobOptionsDto { CidxAware = false }
         };
 
         _mockRepositoryService
@@ -292,7 +303,7 @@ public class JobServiceTests : IDisposable
             .ReturnsAsync(testJobPath);
         
         _mockClaudeExecutor
-            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<CancellationToken>()))
+            .Setup(c => c.GenerateJobTitleAsync("Test prompt", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("Test Job Title");
 
         await _jobService.CreateJobAsync(createRequest, "testuser");

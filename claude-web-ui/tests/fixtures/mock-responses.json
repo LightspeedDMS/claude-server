@@ -1,0 +1,215 @@
+{
+  "auth": {
+    "login_success": {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlciIsImV4cCI6MTYyNjUwMDAwMH0.mock-signature",
+      "user": {
+        "username": "testuser",
+        "roles": ["user"]
+      }
+    },
+    "login_failure": {
+      "error": "Invalid credentials",
+      "code": "AUTH_INVALID_CREDENTIALS"
+    },
+    "logout_success": {
+      "message": "Logged out successfully"
+    }
+  },
+  
+  "repositories": {
+    "list": [
+      {
+        "name": "test-repo",
+        "gitUrl": "https://github.com/test/sample-repo.git",
+        "status": "ready",
+        "lastPull": "2024-01-15T10:30:00Z",
+        "gitInfo": {
+          "branch": "main",
+          "commit": "abc123def456",
+          "commitMessage": "Initial commit"
+        },
+        "description": "Sample test repository for E2E testing"
+      },
+      {
+        "name": "another-repo",
+        "gitUrl": "https://github.com/test/another-repo.git",
+        "status": "cloning",
+        "lastPull": null,
+        "gitInfo": null,
+        "description": "Another test repository"
+      }
+    ],
+    
+    "register_success": {
+      "name": "new-test-repo",
+      "status": "cloning",
+      "message": "Repository registration started successfully"
+    },
+    
+    "register_failure": {
+      "error": "Repository already exists",
+      "code": "REPO_ALREADY_EXISTS"
+    }
+  },
+  
+  "jobs": {
+    "list": [
+      {
+        "jobId": "job-12345",
+        "title": "Analyze repository structure and create documentation",
+        "status": "completed",
+        "repository": "test-repo",
+        "user": "testuser",
+        "createdAt": "2024-01-15T14:00:00Z",
+        "completedAt": "2024-01-15T14:05:30Z",
+        "exitCode": 0
+      },
+      {
+        "jobId": "job-12346",
+        "title": "Review code quality and suggest improvements",
+        "status": "running",
+        "repository": "test-repo",
+        "user": "testuser",
+        "createdAt": "2024-01-15T14:30:00Z",
+        "completedAt": null,
+        "exitCode": null
+      },
+      {
+        "jobId": "job-12347",
+        "title": "Generate test cases for uploaded functions",
+        "status": "failed",
+        "repository": "another-repo",
+        "user": "testuser",
+        "createdAt": "2024-01-15T13:00:00Z",
+        "completedAt": "2024-01-15T13:02:15Z",
+        "exitCode": 1
+      }
+    ],
+    
+    "create_success": {
+      "jobId": "job-new-123",
+      "status": "created",
+      "title": "New test job",
+      "user": "testuser",
+      "cowPath": "/tmp/workspace/job-new-123",
+      "repository": "test-repo"
+    },
+    
+    "job_detail": {
+      "jobId": "job-12345",
+      "title": "Analyze repository structure and create documentation",
+      "status": "completed",
+      "repository": "test-repo",
+      "user": "testuser",
+      "prompt": "Please analyze this repository and create comprehensive documentation including:\n1. Project overview\n2. File structure\n3. Key components\n4. Usage instructions",
+      "output": "# Repository Analysis\n\n## Project Overview\nThis is a sample Node.js project with the following structure:\n\n## File Structure\n```\n├── src/\n│   ├── components/\n│   ├── services/\n│   └── utils/\n├── tests/\n├── package.json\n└── README.md\n```\n\n## Key Components\n- Authentication service\n- API client\n- Component library\n\n## Usage Instructions\n1. Install dependencies: `npm install`\n2. Start development server: `npm run dev`\n3. Run tests: `npm test`",
+      "exitCode": 0,
+      "createdAt": "2024-01-15T14:00:00Z",
+      "startedAt": "2024-01-15T14:00:15Z",
+      "completedAt": "2024-01-15T14:05:30Z",
+      "files": [
+        {
+          "name": "README.md",
+          "path": "/workspace/README.md",
+          "size": 1024,
+          "type": "text/markdown"
+        },
+        {
+          "name": "analysis.txt",
+          "path": "/workspace/analysis.txt",
+          "size": 2048,
+          "type": "text/plain"
+        }
+      ]
+    },
+    
+    "start_success": {
+      "jobId": "job-12345",
+      "status": "queued",
+      "message": "Job started successfully"
+    },
+    
+    "cancel_success": {
+      "jobId": "job-12345",
+      "status": "cancelled",
+      "message": "Job cancelled successfully"
+    },
+    
+    "delete_success": {
+      "message": "Job deleted successfully"
+    }
+  },
+  
+  "files": {
+    "job_files": [
+      {
+        "name": "uploaded-sample.txt",
+        "path": "/workspace/uploaded-sample.txt",
+        "size": 456,
+        "type": "text/plain",
+        "uploaded": true
+      },
+      {
+        "name": "generated-output.md",
+        "path": "/workspace/generated-output.md",
+        "size": 2048,
+        "type": "text/markdown",
+        "uploaded": false
+      },
+      {
+        "name": "analysis-report.json",
+        "path": "/workspace/analysis-report.json",
+        "size": 1536,
+        "type": "application/json",
+        "uploaded": false
+      }
+    ],
+    
+    "file_content": {
+      "uploaded-sample.txt": "This is the content of the uploaded sample file.\nIt contains multiple lines for testing purposes.\n\nFile upload and retrieval functionality should work correctly.",
+      "generated-output.md": "# Analysis Report\n\nThis is a generated markdown file created by Claude Code.\n\n## Summary\n- Files analyzed: 5\n- Issues found: 2\n- Recommendations: 3\n\n## Details\nDetailed analysis results would appear here.",
+      "analysis-report.json": "{\n  \"summary\": {\n    \"files_analyzed\": 5,\n    \"issues_found\": 2,\n    \"recommendations\": 3\n  },\n  \"files\": [\n    {\n      \"name\": \"sample.txt\",\n      \"status\": \"ok\"\n    }\n  ]\n}"
+    },
+    
+    "upload_success": {
+      "message": "File uploaded successfully",
+      "fileName": "sample.txt",
+      "fileSize": 1024,
+      "filePath": "/workspace/sample.txt"
+    }
+  },
+  
+  "errors": {
+    "unauthorized": {
+      "error": "Unauthorized access",
+      "code": "AUTH_REQUIRED",
+      "status": 401
+    },
+    "forbidden": {
+      "error": "Access forbidden",
+      "code": "ACCESS_FORBIDDEN",
+      "status": 403
+    },
+    "not_found": {
+      "error": "Resource not found",
+      "code": "NOT_FOUND",
+      "status": 404
+    },
+    "validation_error": {
+      "error": "Validation failed",
+      "code": "VALIDATION_ERROR",
+      "status": 400,
+      "details": [
+        {
+          "field": "prompt",
+          "message": "Prompt is required"
+        }
+      ]
+    },
+    "server_error": {
+      "error": "Internal server error",
+      "code": "INTERNAL_ERROR",
+      "status": 500
+    }
+  }
+}

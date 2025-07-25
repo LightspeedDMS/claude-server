@@ -1,0 +1,28 @@
+{
+  "name": "test-config",
+  "version": "1.0.0",
+  "environment": "test",
+  "features": {
+    "authentication": true,
+    "file_upload": true,
+    "job_monitoring": true,
+    "repository_management": true
+  },
+  "limits": {
+    "max_file_size": "50MB",
+    "max_files_per_job": 10,
+    "job_timeout": 3600
+  },
+  "endpoints": {
+    "api_base": "/api",
+    "auth": "/api/auth",
+    "jobs": "/api/jobs",
+    "repositories": "/api/repositories"
+  },
+  "testing": {
+    "e2e_enabled": true,
+    "mock_responses": true,
+    "test_user": "testuser",
+    "test_repository": "test-repo"
+  }
+}

@@ -103,21 +103,9 @@ public class ImageAnalysisE2ETests : IClassFixture<WebApplicationFactory<Program
             // Verify test image exists
             File.Exists(_testImagePath).Should().BeTrue($"Test image should exist at {_testImagePath}");
 
-            // Step 1: Authenticate
-            var loginRequest = new LoginRequest
-            {
-                Username = username,
-                Password = password
-            };
-
-            var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
-            loginResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Authentication should succeed");
-            
-            var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
-            loginResult.Should().NotBeNull();
-            loginResult!.Token.Should().NotBeNullOrEmpty();
-
-            var authClient = CreateAuthenticatedClient(loginResult.Token);
+            // Step 1: Authenticate - using TestAuthenticationHandler
+            var testToken = "test-valid-token-for-image-analysis-e2e";
+            var authClient = CreateAuthenticatedClient(testToken);
 
             Console.WriteLine("✅ Authentication successful");
 

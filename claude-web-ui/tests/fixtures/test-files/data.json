@@ -1,0 +1,25 @@
+{
+  "name": "Test Configuration",
+  "version": "1.0.0",
+  "description": "Sample JSON file for testing Claude Web UI file uploads",
+  "features": [
+    "job-creation",
+    "file-upload",
+    "drag-and-drop",
+    "progress-tracking"
+  ],
+  "settings": {
+    "maxFileSize": "50MB",
+    "allowedTypes": ["*/*"],
+    "dragAndDrop": true,
+    "progressIndicator": true
+  },
+  "testData": {
+    "testFiles": ["sample.txt", "data.json"],
+    "expectedBehavior": "successful upload with progress tracking",
+    "validationRules": {
+      "required": ["filename", "size", "type"],
+      "maxSize": 52428800
+    }
+  }
+}

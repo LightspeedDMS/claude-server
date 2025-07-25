@@ -12,19 +12,19 @@ namespace ClaudeBatchServer.Core.Services;
 public class ShadowFileAuthenticationService : IAuthenticationService
 {
     private readonly IConfiguration _configuration;
-    private readonly string _jwtKey;
+    private readonly SymmetricSecurityKey _signingKey;
     private readonly int _jwtExpiryHours;
     private readonly string _shadowFilePath;
     private readonly string _passwdFilePath;
     private readonly HashSet<string> _revokedTokens = new();
 
-    public ShadowFileAuthenticationService(IConfiguration configuration)
+    public ShadowFileAuthenticationService(IConfiguration configuration, SymmetricSecurityKey signingKey)
     {
         _configuration = configuration;
-        _jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
+        _signingKey = signingKey;
         _jwtExpiryHours = int.Parse(_configuration["Jwt:ExpiryHours"] ?? "24");
-        _shadowFilePath = _configuration["Auth:ShadowFilePath"] ?? "/etc/shadow";
-        _passwdFilePath = _configuration["Auth:PasswdFilePath"] ?? "/etc/passwd";
+        _shadowFilePath = ExpandPath(_configuration["Auth:ShadowFilePath"] ?? "/etc/shadow");
+        _passwdFilePath = ExpandPath(_configuration["Auth:PasswdFilePath"] ?? "/etc/passwd");
     }
 
     public async Task<LoginResponse?> AuthenticateAsync(LoginRequest request)
@@ -58,12 +58,11 @@ public class ShadowFileAuthenticationService : IAuthenticationService
                 return Task.FromResult(false);
 
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_jwtKey);
             
             tokenHandler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
+                IssuerSigningKey = _signingKey,
                 ValidateIssuer = false,
                 ValidateAudience = false,
                 ClockSkew = TimeSpan.Zero
@@ -278,27 +277,39 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     private string GenerateJwtToken(User user)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.ASCII.GetBytes(_jwtKey);
         
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(new[]
             {
-                new Claim(ClaimTypes.Name, user.Username),
+                new Claim("unique_name", user.Username), // Use unique_name to match validation config
                 new Claim(ClaimTypes.NameIdentifier, user.Username)
             }),
             Expires = DateTime.UtcNow.AddHours(_jwtExpiryHours),
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+            SigningCredentials = new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256Signature)
         };
         
         var token = tokenHandler.CreateToken(tokenDescriptor);
         var tokenString = tokenHandler.WriteToken(token);
         
         // Log JWT details for debugging
-        System.Console.WriteLine($"[DEBUG] Generated JWT with key: {_jwtKey} (length: {_jwtKey.Length})");
+        System.Console.WriteLine($"[DEBUG] Generated JWT with signing key KeyId: {_signingKey.KeyId}");
         System.Console.WriteLine($"[DEBUG] Token: {tokenString}");
-        System.Console.WriteLine($"[DEBUG] Key for validation: {Convert.ToBase64String(key)}");
+        System.Console.WriteLine($"[DEBUG] Key for validation: {Convert.ToBase64String(_signingKey.Key)}");
         
         return tokenString;
+    }
+
+    /// <summary>
+    /// Expand ~ to the user's home directory if the path starts with ~/
+    /// </summary>
+    private static string ExpandPath(string path)
+    {
+        if (path.StartsWith("~/"))
+        {
+            var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(homeDirectory, path[2..]);
+        }
+        return path;
     }
 }

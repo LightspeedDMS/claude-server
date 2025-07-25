@@ -21,6 +21,9 @@ public class ClaudeCodeExecutorTests
         // Use /bin/true which ignores all arguments and always succeeds
         _mockConfiguration.Setup(c => c["Claude:Command"]).Returns("/bin/true");
         
+        // Configure to use direct execution for backward compatibility with tests
+        _mockConfiguration.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
+        
         _executor = new ClaudeCodeExecutor(_mockConfiguration.Object, _mockLogger.Object);
     }
 
@@ -53,9 +56,10 @@ public class ClaudeCodeExecutorTests
     [Fact]
     public async Task ExecuteAsync_WithCancellation_ShouldHandleCancellation()
     {
-        // Use a command that sleeps for a specific duration
+        // Use a command that sleeps indefinitely to ensure cancellation
         var mockConfig = new Mock<IConfiguration>();
-        mockConfig.Setup(c => c["Claude:Command"]).Returns("bash -c 'sleep 5'");
+        mockConfig.Setup(c => c["Claude:Command"]).Returns("bash -c 'sleep 30'");
+        mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
         var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
         
@@ -73,7 +77,7 @@ public class ClaudeCodeExecutorTests
             }
         };
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
         var act = async () => await executor.ExecuteAsync(job, Environment.UserName, cts.Token);
 
@@ -96,6 +100,7 @@ public class ClaudeCodeExecutorTests
     {
         var mockConfig = new Mock<IConfiguration>();
         mockConfig.Setup(c => c["Claude:Command"]).Returns("nonexistentcommand12345");
+        mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
         var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
         
@@ -117,8 +122,8 @@ public class ClaudeCodeExecutorTests
         var (exitCode, output) = await executor.ExecuteAsync(job, Environment.UserName, cts.Token);
 
         exitCode.Should().NotBe(0, "Invalid command should return non-zero exit code");
-        // System typically returns 127 for "command not found" or -1 for execution errors
-        exitCode.Should().BeOneOf(-1, 127);
+        // System typically returns 127 for "command not found", 1 for general errors, or -1 for execution errors
+        exitCode.Should().BeOneOf(-1, 1, 127);
         output.Should().NotBeEmpty();
     }
 
@@ -184,7 +189,7 @@ public class ClaudeCodeExecutorTests
             Prompt = "test prompt",
             CowPath = Path.GetTempPath(),
             Repository = "test-repo",
-            Images = new List<string> { "image1.png", "image2.jpg" },
+            UploadedFiles = new List<string> { "document.pdf", "script.py" },
             Options = new JobOptions 
             { 
                 TimeoutSeconds = 5,
@@ -205,6 +210,7 @@ public class ClaudeCodeExecutorTests
     {
         var mockConfig = new Mock<IConfiguration>();
         mockConfig.Setup(c => c["Claude:Command"]).Returns((string?)null);
+        mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
         var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
         

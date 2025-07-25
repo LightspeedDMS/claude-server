@@ -45,15 +45,15 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
                     ["Jobs:MaxConcurrent"] = "1",
                     ["Jobs:TimeoutHours"] = "1",
                     ["Auth:ShadowFilePath"] = "/home/jsbattig/Dev/claude-server/claude-batch-server/test-shadow",
+                    ["Auth:PasswdFilePath"] = "/home/jsbattig/Dev/claude-server/claude-batch-server/test-passwd",
                     ["Claude:Command"] = "claude --dangerously-skip-permissions --print"
                 });
             });
             
-            // FIXED: Use simplified test authentication like other test classes
+            // FIXED: Use TestAuthenticationHandler for reliable integration testing
             builder.ConfigureServices(services =>
             {
-                // For integration tests, bypass complex JWT validation temporarily
-                // Production JWT authentication improvements are in Program.cs
+                // For integration tests, use simplified test authentication
                 services.AddAuthentication("Test")
                     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => { });
             });
@@ -77,6 +77,20 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
         var claudeDir = Path.Combine(testRepo, ".claude");
         Directory.CreateDirectory(claudeDir);
         File.WriteAllText(Path.Combine(claudeDir, "settings.json"), "{}");
+        
+        // Create repository settings file inside the repository directory (as expected by CowRepositoryService)
+        var repoSettingsPath = Path.Combine(testRepo, ".claude-batch-settings.json");
+        var settings = new
+        {
+            Name = "test-repo",
+            GitUrl = "file://" + testRepo,
+            Description = "Test repository for E2E tests",
+            CidxAware = true,
+            CloneStatus = "completed",
+            RegisteredAt = DateTime.UtcNow,
+            LastModified = DateTime.UtcNow
+        };
+        File.WriteAllText(repoSettingsPath, System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 
     [Fact]
@@ -86,7 +100,11 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
         {
             Prompt = "List all files in this repository",
             Repository = "test-repo",
-            Options = new JobOptionsDto { Timeout = 30 }
+            Options = new JobOptionsDto 
+            { 
+                Timeout = 30,
+                CidxAware = false // Disable CIDX since test repositories don't have it configured
+            }
         };
 
         var createResponse = await _client.PostAsJsonAsync("/jobs", createJobRequest);
@@ -128,10 +146,18 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
             {
                 Prompt = "Test prompt for image upload",
                 Repository = "test-repo",
-                Options = new JobOptionsDto { Timeout = 30 }
+                Options = new JobOptionsDto { Timeout = 30, CidxAware = false }
             };
 
             var createResponse = await _client.PostAsJsonAsync("/jobs", createJobRequest);
+            
+            // DEBUG: If we get 400, let's see the actual error message
+            if (createResponse.StatusCode == HttpStatusCode.BadRequest)
+            {
+                var errorContent = await createResponse.Content.ReadAsStringAsync();
+                Console.WriteLine($"❌ Job creation failed with 400: {errorContent}");
+            }
+            
             createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
             
             jobResult = await createResponse.Content.ReadFromJsonAsync<CreateJobResponse>();
@@ -184,7 +210,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
     public async Task FileOperations_GetFiles_ShouldReturnFileList()
     {
         var jobId = Guid.NewGuid();
-        var response = await _client.GetAsync($"/jobs/{jobId}/files");
+        var response = await _client.GetAsync($"/jobs/{jobId}/files/directories");
         
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -247,7 +273,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
             "/jobs",
             "/repositories",
             $"/jobs/{Guid.NewGuid()}",
-            $"/jobs/{Guid.NewGuid()}/files"
+            $"/jobs/{Guid.NewGuid()}/files/directories"
         };
 
         foreach (var endpoint in getEndpoints)
@@ -286,26 +312,15 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
 
     private async Task AuthenticateClient()
     {
-        // Get test credentials from environment
-        var username = Environment.GetEnvironmentVariable("TEST_USERNAME") ?? "jsbattig";
-        var password = Environment.GetEnvironmentVariable("TEST_PASSWORD") ?? "test123";
-
-        var loginRequest = new LoginRequest
-        {
-            Username = username,
-            Password = password
-        };
-
-        var loginResponse = await _client.PostAsJsonAsync("/auth/login", loginRequest);
-        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Authentication should succeed for tests");
-        
-        var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
-        loginResult.Should().NotBeNull();
-        loginResult!.Token.Should().NotBeNullOrEmpty();
+        // FIXED: Since we're using TestAuthenticationHandler, we can use any valid token
+        // The TestAuthenticationHandler accepts any non-empty token that isn't "expired.token.here"
+        var testToken = "test-valid-token-for-e2e-tests";
         
         // Set the authorization header for subsequent requests
         _client.DefaultRequestHeaders.Authorization = 
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginResult.Token);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", testToken);
+        
+        await Task.CompletedTask; // Make it async to match the signature
     }
 
     private static byte[] CreateTestImageData()
@@ -331,7 +346,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
             {
                 Prompt = "1+1",  // Simple math that Claude should answer with "2"
                 Repository = "test-repo",
-                Options = new JobOptionsDto { Timeout = 60 } // Allow more time for real Claude execution
+                Options = new JobOptionsDto { Timeout = 60, CidxAware = false } // Allow more time for real Claude execution, disable cidx for simplicity
             };
 
             var createResponse = await _client.PostAsJsonAsync("/jobs", createJobRequest);

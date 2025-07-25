@@ -23,6 +23,7 @@ public class RepositoryResponse
     public bool? HasUncommittedChanges { get; set; }
     public AheadBehindStatus? AheadBehind { get; set; }
     public string? CloneStatus { get; set; } = "unknown";
+    public bool? CidxAware { get; set; }  // Whether repository is configured for cidx indexing
 }
 
 public class AheadBehindStatus
@@ -36,6 +37,7 @@ public class RegisterRepositoryRequest
     public string Name { get; set; } = string.Empty;
     public string GitUrl { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public bool CidxAware { get; set; } = true; // Enable cidx indexing during registration
 }
 
 public class RegisterRepositoryResponse
@@ -68,4 +70,13 @@ public class FileContentResponse
 {
     public string Content { get; set; } = string.Empty;
     public string Encoding { get; set; } = "utf8";
+}
+
+public class DirectoryInfoResponse
+{
+    public string Name { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+    public DateTime Modified { get; set; }
+    public bool HasSubdirectories { get; set; }
+    public int FileCount { get; set; }
 }

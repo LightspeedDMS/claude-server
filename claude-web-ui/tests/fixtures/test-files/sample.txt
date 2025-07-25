@@ -1,0 +1,12 @@
+This is a sample text file for testing file uploads in the Claude Web UI.
+
+It contains multiple lines of text to test the file upload functionality.
+
+Features to test:
+- File selection
+- Drag and drop
+- Progress indicators
+- File validation
+- Multiple file support
+
+This file should be uploaded successfully with proper progress tracking.

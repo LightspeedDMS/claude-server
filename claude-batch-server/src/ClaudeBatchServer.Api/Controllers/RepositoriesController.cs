@@ -35,6 +35,37 @@ public class RepositoriesController : ControllerBase
         }
     }
 
+    [HttpGet("{repoName}")]
+    public async Task<ActionResult<RepositoryResponse>> GetRepository(string repoName)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            _logger.LogInformation("GetRepository called for {RepoName} by user {Username}", repoName, username);
+
+            if (string.IsNullOrWhiteSpace(repoName))
+                return BadRequest("Repository name is required");
+
+            var repositories = await _repositoryService.GetRepositoriesWithMetadataAsync();
+            var repository = repositories.FirstOrDefault(r => r.Name.Equals(repoName, StringComparison.OrdinalIgnoreCase));
+
+            if (repository == null)
+            {
+                return NotFound($"Repository '{repoName}' not found");
+            }
+
+            return Ok(repository);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting repository {RepoName}", repoName);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     [HttpPost("register")]
     [Authorize]
     public async Task<ActionResult<RegisterRepositoryResponse>> RegisterRepository([FromBody] RegisterRepositoryRequest request)
@@ -52,7 +83,7 @@ public class RepositoriesController : ControllerBase
             if (string.IsNullOrWhiteSpace(request.GitUrl))
                 return BadRequest("Git URL is required");
 
-            var repository = await _repositoryService.RegisterRepositoryAsync(request.Name, request.GitUrl, request.Description);
+            var repository = await _repositoryService.RegisterRepositoryAsync(request.Name, request.GitUrl, request.Description, request.CidxAware);
 
             var response = new RegisterRepositoryResponse
             {

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Batch Server</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Login Form -->
+    <div id="login-container" class="container" data-testid="login-container" style="display: none;">
+      <div class="login-form">
+        <h1>Claude Batch Server</h1>
+        <p class="subtitle">Sign in to access your repositories and jobs</p>
+        
+        <form id="login-form" data-testid="login-form">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input 
+              type="text" 
+              id="username" 
+              data-testid="username"
+              required 
+              autocomplete="username"
+            />
+          </div>
+          
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input 
+              type="password" 
+              id="password" 
+              data-testid="password"
+              required 
+              autocomplete="current-password"
+            />
+          </div>
+          
+          <button 
+            type="submit" 
+            id="login-button" 
+            data-testid="login-button"
+            class="btn btn-primary"
+          >
+            Sign In
+          </button>
+          
+          <div id="login-error" data-testid="error-message" class="error-message" style="display: none;"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard-container" class="container" style="display: none;" data-testid="dashboard">
+      <header class="header">
+        <h1>Claude Batch Server</h1>
+        <div class="user-menu" data-testid="user-menu">
+          <span id="username-display">Loading...</span>
+          <button id="logout-button" data-testid="logout-button" class="btn btn-secondary">
+            Sign Out
+          </button>
+        </div>
+      </header>
+
+      <nav class="navigation">
+        <button id="nav-jobs" class="nav-item active" data-testid="jobs-nav">Jobs</button>
+        <button id="nav-repositories" class="nav-item" data-testid="repositories-nav">Repositories</button>
+      </nav>
+
+      <main class="main-content">
+        <!-- Jobs View -->
+        <div id="jobs-view" class="view active">
+          <div class="view-header">
+            <h2>Your Jobs</h2>
+            <div class="view-actions">
+              <button id="refresh-jobs" class="btn btn-secondary">Refresh</button>
+              <button id="create-job-button" data-testid="create-job-button" class="btn btn-primary">
+                Create New Job
+              </button>
+            </div>
+          </div>
+          
+          <div id="jobs-list" data-testid="job-list" class="jobs-list">
+            <div class="loading">Loading jobs...</div>
+          </div>
+        </div>
+
+        <!-- Repositories View -->
+        <div id="repositories-view" class="view">
+          <div class="view-header">
+            <h2>Repositories</h2>
+            <div class="view-actions">
+              <button id="refresh-repositories" class="btn btn-secondary">Refresh</button>
+              <button id="register-repo-button" data-testid="register-repo-button" class="btn btn-primary">
+                Register Repository
+              </button>
+            </div>
+          </div>
+          
+          <div id="repositories-list" data-testid="repository-list" class="repositories-list">
+            <div class="loading">Loading repositories...</div>
+          </div>
+        </div>
+
+        <!-- Create Job View -->
+        <div id="create-job-view" class="view">
+          <div class="view-header">
+            <h2>Create New Job</h2>
+          </div>
+          
+          <form id="create-job-form" class="create-job-form">
+            <div class="form-group">
+              <label for="job-repository">Repository</label>
+              <select id="job-repository" data-testid="repository-select" required>
+                <option value="">Select a repository...</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="job-prompt">Prompt</label>
+              <textarea 
+                id="job-prompt" 
+                data-testid="prompt-input"
+                placeholder="Describe what you want Claude Code to do..."
+                required
+                rows="4"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>File Upload</label>
+              <div class="file-upload-area" id="file-upload-area" data-testid="file-upload-area">
+                <input 
+                  type="file" 
+                  id="file-upload" 
+                  data-testid="file-upload"
+                  multiple 
+                  style="display: none;"
+                />
+                <div class="file-upload-content">
+                  <p>Drag files here or click to select</p>
+                  <div id="upload-progress" data-testid="upload-progress" style="display: none;">
+                    <div class="progress-bar">
+                      <div class="progress-fill" data-testid="upload-progress-bar"></div>
+                    </div>
+                    <span class="progress-text">0%</span>
+                  </div>
+                  <div id="uploaded-files" data-testid="uploaded-files" class="uploaded-files"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Job Options</label>
+              <div class="job-options">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="git-aware" data-testid="git-aware" checked />
+                  Git Aware
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cidx-aware" data-testid="cidx-aware" checked />
+                  Cidx Aware
+                </label>
+                <div class="form-group inline">
+                  <label for="job-timeout">Timeout (seconds)</label>
+                  <input 
+                    type="number" 
+                    id="job-timeout" 
+                    data-testid="timeout"
+                    value="300" 
+                    min="60" 
+                    max="3600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" id="cancel-job-creation" class="btn btn-secondary">
+                Cancel
+              </button>
+              <button type="submit" id="submit-job" data-testid="submit-job" class="btn btn-primary">
+                Create Job
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+      <p>Loading...</p>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

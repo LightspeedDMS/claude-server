@@ -53,6 +53,7 @@ public class RepositoryInfo
     public DateTime? RegisteredAt { get; set; }
     public DateTime? LastPull { get; set; }
     public string? LastPullStatus { get; set; }
+    public string? CloneStatus { get; set; }
     public string? RemoteUrl { get; set; }
     public string? CurrentBranch { get; set; }
     public string? CommitHash { get; set; }
@@ -60,6 +61,7 @@ public class RepositoryInfo
     public string? CommitAuthor { get; set; }
     public DateTime? CommitDate { get; set; }
     public bool? HasUncommittedChanges { get; set; }
+    public bool? CidxAware { get; set; }
 }
 
 public class JobFile

@@ -17,6 +17,20 @@ public class JobQueueHostedService : BackgroundService
     {
         _logger.LogInformation("Job Queue Hosted Service started");
 
+        // Initialize JobService with persisted jobs for crash recovery
+        try
+        {
+            using var initScope = _serviceProvider.CreateScope();
+            var jobService = initScope.ServiceProvider.GetRequiredService<IJobService>();
+            await jobService.InitializeAsync();
+            _logger.LogInformation("JobService initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize JobService");
+            return; // Don't continue if initialization fails
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try

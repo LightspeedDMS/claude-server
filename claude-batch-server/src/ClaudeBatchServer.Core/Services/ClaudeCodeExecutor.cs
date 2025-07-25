@@ -23,34 +23,68 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
     public async Task<(int ExitCode, string Output)> ExecuteAsync(Job job, string username, CancellationToken cancellationToken)
     {
+        return await ExecuteAsync(job, username, null, cancellationToken);
+    }
+
+    public async Task<(int ExitCode, string Output)> ExecuteAsync(Job job, string username, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
+    {
+        // Check if we should use the new fire-and-forget approach (for production) or old direct execution (for tests)
+        var useFireAndForget = _configuration["Claude:UseFireAndForget"]?.ToLower() != "false";
+        
+        if (useFireAndForget && statusCallback != null)
+        {
+            return await ExecuteWithFireAndForgetAsync(job, username, statusCallback, cancellationToken);
+        }
+        else
+        {
+            return await ExecuteDirectAsync(job, username, statusCallback, cancellationToken);
+        }
+    }
+
+    private async Task<(int ExitCode, string Output)> ExecuteWithFireAndForgetAsync(Job job, string username, IJobStatusCallback statusCallback, CancellationToken cancellationToken)
+    {
+        // Create output file path for crash resilience
+        var outputFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.output");
+        var pidFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.pid");
+        
         try
         {
-            _logger.LogInformation("Executing Claude Code for job {JobId} as user {Username}", job.Id, username);
+            _logger.LogInformation("Executing Claude Code for job {JobId} as user {Username} (fire-and-forget)", job.Id, username);
 
             var userInfo = GetUserInfo(username);
             if (userInfo == null)
                 throw new InvalidOperationException($"User '{username}' not found");
 
-            // Handle git operations if gitAware is enabled
-            if (job.Options.GitAware)
+            // Handle git operations if gitAware is enabled AND not using new workflow
+            // NEW WORKFLOW: Git operations are now handled in JobService before CoW cloning
+            var useNewWorkflow = _configuration["Jobs:UseNewWorkflow"]?.ToLower() != "false";
+            if (job.Options.GitAware && !useNewWorkflow)
             {
-                var gitResult = await HandleGitOperationsAsync(job, userInfo, cancellationToken);
+                var gitResult = await HandleGitOperationsAsync(job, userInfo, statusCallback, cancellationToken);
                 if (!gitResult.Success)
                 {
                     job.Status = JobStatus.GitFailed;
-                    job.GitStatus = gitResult.Status;
+                    job.GitStatus = gitResult.Status ?? "unknown";
+                    await statusCallback.OnStatusChangedAsync(job);
                     return (-1, gitResult.ErrorMessage);
                 }
-                job.GitStatus = gitResult.Status;
+                job.GitStatus = gitResult.Status ?? "unknown";
+            }
+            else if (job.Options.GitAware && useNewWorkflow)
+            {
+                // NEW WORKFLOW: Git pull already completed in JobService, just set status
+                job.GitStatus = "skipped_new_workflow";
+                _logger.LogInformation("Skipping git operations for job {JobId} - using new workflow (git pull already done on source repository)", job.Id);
             }
 
             // Handle cidx operations if cidxAware is enabled
             if (job.Options.CidxAware)
             {
-                var cidxResult = await HandleCidxOperationsAsync(job, userInfo, cancellationToken);
+                var cidxResult = await HandleCidxOperationsAsync(job, userInfo, statusCallback, cancellationToken);
                 if (!cidxResult.Success)
                 {
                     job.CidxStatus = cidxResult.Status;
+                    await statusCallback.OnStatusChangedAsync(job);
                     _logger.LogWarning("Cidx operations failed for job {JobId}: {Error}", job.Id, cidxResult.ErrorMessage);
                     // Don't fail the job for cidx issues, just continue without it
                 }
@@ -58,78 +92,16 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
                 {
                     job.Status = JobStatus.CidxReady;
                     job.CidxStatus = cidxResult.Status;
+                    await statusCallback.OnStatusChangedAsync(job);
                 }
             }
 
-            var claudeArgs = await BuildClaudeArgumentsAsync(job);
-            var environment = BuildEnvironment(job, userInfo);
+            // Set status to running and notify
+            job.Status = JobStatus.Running;
+            await statusCallback.OnStatusChangedAsync(job);
 
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = _claudeCommand.Split(' ')[0], // Get the command (e.g., "claude")
-                Arguments = string.Join(" ", _claudeCommand.Split(' ').Skip(1).Concat(claudeArgs.Split(' '))), // Get all args
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                RedirectStandardInput = true, // Enable stdin redirection to pipe the prompt
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = job.CowPath
-            };
-
-            foreach (var env in environment)
-            {
-                processInfo.Environment[env.Key] = env.Value;
-            }
-
-            using var process = new Process { StartInfo = processInfo };
-            
-            var outputBuilder = new StringBuilder();
-            var errorBuilder = new StringBuilder();
-
-            process.OutputDataReceived += (sender, e) =>
-            {
-                if (e.Data != null)
-                {
-                    outputBuilder.AppendLine(e.Data);
-                    _logger.LogDebug("Claude output: {Data}", e.Data);
-                }
-            };
-
-            process.ErrorDataReceived += (sender, e) =>
-            {
-                if (e.Data != null)
-                {
-                    errorBuilder.AppendLine(e.Data);
-                    _logger.LogDebug("Claude error: {Data}", e.Data);
-                }
-            };
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                ImpersonateUser(processInfo, userInfo);
-            }
-
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            // Write the prompt to stdin and close it
-            if (!string.IsNullOrEmpty(job.Prompt))
-            {
-                await process.StandardInput.WriteAsync(job.Prompt);
-                process.StandardInput.Close();
-            }
-
-            await process.WaitForExitAsync(cancellationToken);
-
-            var output = outputBuilder.ToString();
-            var error = errorBuilder.ToString();
-            var combinedOutput = string.IsNullOrEmpty(error) ? output : $"{output}\n\nErrors:\n{error}";
-
-            _logger.LogInformation("Claude Code execution completed for job {JobId} with exit code {ExitCode}", 
-                job.Id, process.ExitCode);
-
-            return (process.ExitCode, combinedOutput);
+            // Launch Claude Code with output redirection - LAUNCH AND FORGET approach
+            return await LaunchClaudeCodeWithRedirection(job, userInfo, outputFilePath, pidFilePath, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -140,6 +112,203 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         {
             _logger.LogError(ex, "Failed to execute Claude Code for job {JobId}", job.Id);
             return (-1, $"Execution failed: {ex.Message}");
+        }
+    }
+
+    private async Task<(int ExitCode, string Output)> ExecuteDirectAsync(Job job, string username, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Executing Claude Code for job {JobId} as user {Username} (direct)", job.Id, username);
+
+            var userInfo = GetUserInfo(username);
+            if (userInfo == null)
+                throw new InvalidOperationException($"User '{username}' not found");
+
+            // Handle git operations if gitAware is enabled AND not using new workflow
+            // NEW WORKFLOW: Git operations are now handled in JobService before CoW cloning
+            var useNewWorkflow = _configuration["Jobs:UseNewWorkflow"]?.ToLower() != "false";
+            if (job.Options.GitAware && !useNewWorkflow)
+            {
+                var gitResult = await HandleGitOperationsAsync(job, userInfo, statusCallback, cancellationToken);
+                if (!gitResult.Success)
+                {
+                    job.Status = JobStatus.GitFailed;
+                    job.GitStatus = gitResult.Status ?? "unknown";
+                    if (statusCallback != null)
+                        await statusCallback.OnStatusChangedAsync(job);
+                    return (-1, gitResult.ErrorMessage);
+                }
+                job.GitStatus = gitResult.Status ?? "unknown";
+            }
+            else if (job.Options.GitAware && useNewWorkflow)
+            {
+                // NEW WORKFLOW: Git pull already completed in JobService, just set status
+                job.GitStatus = "skipped_new_workflow";
+                _logger.LogInformation("Skipping git operations for job {JobId} - using new workflow (git pull already done on source repository)", job.Id);
+            }
+
+            // Handle cidx operations if cidxAware is enabled
+            if (job.Options.CidxAware)
+            {
+                var cidxResult = await HandleCidxOperationsAsync(job, userInfo, statusCallback, cancellationToken);
+                if (!cidxResult.Success)
+                {
+                    job.CidxStatus = cidxResult.Status;
+                    if (statusCallback != null)
+                        await statusCallback.OnStatusChangedAsync(job);
+                    _logger.LogWarning("Cidx operations failed for job {JobId}: {Error}", job.Id, cidxResult.ErrorMessage);
+                    // Don't fail the job for cidx issues, just continue without it
+                }
+                else
+                {
+                    job.Status = JobStatus.CidxReady;
+                    job.CidxStatus = cidxResult.Status;
+                    if (statusCallback != null)
+                        await statusCallback.OnStatusChangedAsync(job);
+                }
+            }
+
+            // Set status to running and notify
+            job.Status = JobStatus.Running;
+            if (statusCallback != null)
+                await statusCallback.OnStatusChangedAsync(job);
+
+            // Direct execution (original approach for backward compatibility)
+            return await ExecuteClaudeDirectly(job, userInfo, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Claude Code execution was cancelled for job {JobId}", job.Id);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to execute Claude Code for job {JobId}", job.Id);
+            return (-1, $"Execution failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Launch Claude Code with shell output redirection for crash resilience
+    /// </summary>
+    private async Task<(int ExitCode, string Output)> LaunchClaudeCodeWithRedirection(
+        Job job, UserInfo userInfo, string outputFilePath, string pidFilePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var claudeArgs = await BuildClaudeArgumentsAsync(job);
+            var environment = BuildEnvironment(job, userInfo);
+
+            // Create a shell script that will run Claude Code with output redirection
+            var scriptPath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.sh");
+            var claudeCommand = _claudeCommand.Split(' ')[0]; // Get the command (e.g., "claude")
+            var claudeBaseArgs = string.Join(" ", _claudeCommand.Split(' ').Skip(1)); // Get base args
+            var fullArgs = string.IsNullOrEmpty(claudeArgs.Trim()) ? claudeBaseArgs : $"{claudeBaseArgs} {claudeArgs}";
+
+            // Process placeholder replacements in the prompt before execution
+            var processedPrompt = ProcessPromptPlaceholders(job.Prompt, job.UploadedFiles);
+
+            // Build shell script content with proper output redirection and Unix line endings
+            var lines = new[]
+            {
+                "#!/bin/bash",
+                $"# Auto-generated script for job {job.Id}",
+                "set -e",
+                "",
+                "# Set environment variables"
+            }
+            .Concat(environment.Select(kv => $"export {kv.Key}=\"{kv.Value}\""))
+            .Concat(new[]
+            {
+                "",
+                "# Change to job directory", 
+                $"cd \"{job.CowPath}\"",
+                "",
+                "# Save PID and run Claude Code with output redirection",
+                $"echo $$ > \"{pidFilePath}\"",
+                $"echo \"{processedPrompt.Replace("\"", "\\\"")}\" | {claudeCommand} {fullArgs} >> \"{outputFilePath}\" 2>&1",
+                $"echo \"Exit code: $?\" >> \"{outputFilePath}\""
+            });
+            
+            var scriptContent = string.Join("\n", lines) + "\n";
+
+            // Write script to file with explicit UTF-8 encoding and Unix line endings
+            await File.WriteAllTextAsync(scriptPath, scriptContent, new UTF8Encoding(false), cancellationToken);
+            
+            // Make script executable
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var chmodProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "chmod",
+                        Arguments = $"+x \"{scriptPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+                chmodProcess.Start();
+                await chmodProcess.WaitForExitAsync(cancellationToken);
+            }
+
+            // Launch the script and detach (fire and forget)  
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"\"{scriptPath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = job.CowPath,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false
+            };
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                ImpersonateUser(processInfo, userInfo);
+            }
+
+            try
+            {
+                var process = Process.Start(processInfo);
+                if (process == null)
+                {
+                    throw new InvalidOperationException("Failed to start Claude Code process");
+                }
+
+                // Store the process ID in the job for monitoring
+                job.ClaudeProcessId = process.Id;
+                
+                // Give the process a moment to start and potentially fail
+                await Task.Delay(100, cancellationToken);
+                
+                // Check if process is still running (not immediately failed)
+                if (!process.HasExited)
+                {
+                    _logger.LogInformation("Claude Code process started successfully for job {JobId} with PID {ProcessId}", 
+                        job.Id, process.Id);
+                    return (0, "Process launched successfully");
+                }
+                else
+                {
+                    var exitCode = process.ExitCode;
+                    _logger.LogError("Claude Code process exited immediately for job {JobId} with exit code {ExitCode}", 
+                        job.Id, exitCode);
+                    return (exitCode, $"Process exited immediately with code {exitCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start Claude Code process for job {JobId}", job.Id);
+                return (-1, $"Failed to start process: {ex.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to launch Claude Code for job {JobId}", job.Id);
+            return (-1, $"Launch failed: {ex.Message}");
         }
     }
 
@@ -252,13 +421,15 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         }
     }
 
-    private async Task<(bool Success, string Status, string ErrorMessage)> HandleGitOperationsAsync(Job job, UserInfo userInfo, CancellationToken cancellationToken)
+    private async Task<(bool Success, string Status, string ErrorMessage)> HandleGitOperationsAsync(Job job, UserInfo userInfo, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
     {
         try
         {
             _logger.LogInformation("Starting git operations for job {JobId}", job.Id);
             job.Status = JobStatus.GitPulling;
             job.GitStatus = "checking";
+            if (statusCallback != null)
+                await statusCallback.OnStatusChangedAsync(job);
 
             // Check if directory is a git repository
             var gitDir = Path.Combine(job.CowPath, ".git");
@@ -290,16 +461,80 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         }
     }
 
-    private async Task<(bool Success, string Status, string ErrorMessage)> HandleCidxOperationsAsync(Job job, UserInfo userInfo, CancellationToken cancellationToken)
+    private async Task<(bool Success, string Status, string ErrorMessage)> HandleCidxOperationsAsync(Job job, UserInfo userInfo, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
     {
         try
         {
-            _logger.LogInformation("Starting cidx operations for job {JobId}", job.Id);
+            _logger.LogInformation("Starting cidx operations for job {JobId} on repository {Repository}", job.Id, job.Repository);
+            
+            // Verify that repository is cidx-aware and pre-indexed
+            bool isRepositoryPreIndexed = await IsRepositoryPreIndexedAsync(job.Repository);
+            
+            if (!isRepositoryPreIndexed)
+            {
+                var errorMessage = $"Repository '{job.Repository}' is not cidx-aware or was not properly indexed during registration. Cannot run cidx-aware job.";
+                _logger.LogError(errorMessage);
+                return (false, "failed", errorMessage);
+            }
+
+            _logger.LogInformation("Repository {Repository} is pre-indexed. Starting cidx reconciliation for job {JobId}", job.Repository, job.Id);
+            return await StartCidxServiceForPreIndexedRepository(job, userInfo, statusCallback, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cidx operations failed for job {JobId}", job.Id);
+            return (false, "failed", $"Cidx operations error: {ex.Message}");
+        }
+    }
+
+    private async Task<bool> IsRepositoryPreIndexedAsync(string repositoryName)
+    {
+        try
+        {
+            // Check if repository has completed status and is cidx-aware
+            // Repository settings file should exist in the repositories directory
+            var repositoriesPath = Path.Combine(Directory.GetCurrentDirectory(), "workspace", "repos");
+            var settingsFile = Path.Combine(repositoriesPath, $"{repositoryName}.settings.json");
+            
+            if (!File.Exists(settingsFile))
+            {
+                _logger.LogWarning("Repository settings file not found for {Repository}: {Path}", repositoryName, settingsFile);
+                return false;
+            }
+
+            var settingsJson = await File.ReadAllTextAsync(settingsFile);
+            var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+            
+            if (settings == null) return false;
+
+            // Check if repository is cidx-aware and completed
+            bool isCidxAware = settings.ContainsKey("CidxAware") && (settings["CidxAware"]?.ToString() ?? "").Equals("true", StringComparison.OrdinalIgnoreCase);
+            bool isCompleted = settings.ContainsKey("CloneStatus") && (settings["CloneStatus"]?.ToString() ?? "").Equals("completed", StringComparison.OrdinalIgnoreCase);
+            
+            _logger.LogInformation("Repository {Repository} cidx status - CidxAware: {CidxAware}, CloneStatus: {CloneStatus}", 
+                repositoryName, isCidxAware, settings.GetValueOrDefault("CloneStatus", "unknown"));
+            
+            return isCidxAware && isCompleted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking if repository {Repository} is pre-indexed", repositoryName);
+            return false;
+        }
+    }
+
+    private async Task<(bool Success, string Status, string ErrorMessage)> StartCidxServiceForPreIndexedRepository(Job job, UserInfo userInfo, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
+    {
+        try
+        {
             job.Status = JobStatus.CidxIndexing;
             job.CidxStatus = "starting";
+            if (statusCallback != null)
+                await statusCallback.OnStatusChangedAsync(job);
 
-            // Fix cidx configuration for the newly CoWed repository
-            _logger.LogInformation("Fixing cidx configuration for job {JobId}", job.Id);
+            // Fix cidx configuration for the newly CoWed repository (this is safe and needed for CoW)
+            // NOTE: CoW clones inherit embedding provider config from original repo, so fix-config doesn't need embedding params
+            _logger.LogInformation("Fixing cidx configuration for pre-indexed repository job {JobId}", job.Id);
             var fixConfigResult = await ExecuteCidxCommandAsync("fix-config --force", job.CowPath, userInfo, cancellationToken);
             if (fixConfigResult.ExitCode != 0)
             {
@@ -308,32 +543,37 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             }
 
             // Start cidx container
+            _logger.LogInformation("Starting cidx service for pre-indexed repository job {JobId}", job.Id);
             var startResult = await ExecuteCidxCommandAsync("start", job.CowPath, userInfo, cancellationToken);
             if (startResult.ExitCode != 0)
             {
                 return (false, "failed", $"Cidx start failed: {startResult.Output}");
             }
 
-            job.CidxStatus = "indexing";
+            job.CidxStatus = "reconciling";
 
-            // Run cidx index --reconcile
-            var indexResult = await ExecuteCidxCommandAsync("index --reconcile", job.CowPath, userInfo, cancellationToken);
-            if (indexResult.ExitCode != 0)
+            // Run cidx index --reconcile to index any new changes from git pull
+            // This is fast since the repo was already fully indexed during registration
+            _logger.LogInformation("Running cidx index --reconcile for pre-indexed repository job {JobId} (indexing new changes only)", job.Id);
+            var reconcileResult = await ExecuteCidxCommandAsync("index --reconcile", job.CowPath, userInfo, cancellationToken);
+            if (reconcileResult.ExitCode != 0)
             {
-                // Try to stop cidx if indexing failed
+                // Try to stop cidx if reconcile failed
                 await ExecuteCidxCommandAsync("stop", job.CowPath, userInfo, CancellationToken.None);
-                return (false, "failed", $"Cidx indexing failed: {indexResult.Output}");
+                return (false, "failed", $"Cidx reconcile failed: {reconcileResult.Output}");
             }
 
-            _logger.LogInformation("Cidx indexing successful for job {JobId}", job.Id);
+            job.CidxStatus = "ready";
+            _logger.LogInformation("Cidx reconcile completed successfully for pre-indexed repository job {JobId}", job.Id);
             return (true, "ready", string.Empty);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Cidx operations failed for job {JobId}", job.Id);
-            return (false, "failed", $"Cidx operations error: {ex.Message}");
+            _logger.LogError(ex, "Failed to reconcile cidx for pre-indexed repository job {JobId}", job.Id);
+            return (false, "failed", $"Cidx reconcile error: {ex.Message}");
         }
     }
+
 
     private async Task<(int ExitCode, string Output)> ExecuteGitCommandAsync(string gitArgs, string workingDirectory, UserInfo userInfo, CancellationToken cancellationToken)
     {
@@ -385,6 +625,18 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             CreateNoWindow = true,
             WorkingDirectory = workingDirectory
         };
+        
+        // CRITICAL: Pass through VOYAGE_API_KEY from configuration for voyage-ai embedding provider
+        var voyageApiKey = _configuration["Cidx:VoyageApiKey"];
+        if (!string.IsNullOrEmpty(voyageApiKey))
+        {
+            processInfo.EnvironmentVariables["VOYAGE_API_KEY"] = voyageApiKey;
+            _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", cidxArgs);
+        }
+        else
+        {
+            _logger.LogWarning("VOYAGE_API_KEY not configured - cidx may default to ollama");
+        }
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -551,7 +803,7 @@ Check cidx status periodically with: cidx status";
         }
     }
 
-    public async Task<string> GenerateJobTitleAsync(string prompt, CancellationToken cancellationToken = default)
+    public async Task<string> GenerateJobTitleAsync(string prompt, string? repositoryPath = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -570,7 +822,8 @@ Prompt to summarize:
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                WorkingDirectory = repositoryPath ?? Environment.CurrentDirectory // Set working directory to repository context
             };
 
             using var process = new Process { StartInfo = processInfo };
@@ -679,6 +932,338 @@ Prompt to summarize:
             _logger.LogError(ex, "Error stopping cidx containers for workspace {WorkspacePath}", workspacePath);
             return (-1, $"Error stopping cidx: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Check if a process is still running by PID
+    /// </summary>
+    public bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            // Process not found
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            // Process has exited
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Check if a job has completed by looking at output file and PID
+    /// </summary>
+    public async Task<(bool IsComplete, string Output)> CheckJobCompletion(Job job)
+    {
+        var outputFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.output");
+        var pidFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.pid");
+
+        try
+        {
+            // If no process ID is stored, check if output file exists and completed
+            if (!job.ClaudeProcessId.HasValue)
+            {
+                if (File.Exists(outputFilePath))
+                {
+                    var output = await File.ReadAllTextAsync(outputFilePath);
+                    // Check if output contains "Exit code:" which indicates completion
+                    if (output.Contains("Exit code:"))
+                    {
+                        return (true, output);
+                    }
+                }
+                return (false, string.Empty);
+            }
+
+            // Check if process is still running
+            var isRunning = IsProcessRunning(job.ClaudeProcessId.Value);
+            
+            if (!isRunning && File.Exists(outputFilePath))
+            {
+                // Process finished, read the output
+                var output = await File.ReadAllTextAsync(outputFilePath);
+                return (true, output);
+            }
+
+            return (false, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking job completion for job {JobId}", job.Id);
+            return (false, string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Recover jobs that were running when the server crashed
+    /// </summary>
+    public async Task<List<Job>> RecoverCrashedJobsAsync(IEnumerable<Job> runningJobs)
+    {
+        var recoveredJobs = new List<Job>();
+
+        foreach (var job in runningJobs)
+        {
+            try
+            {
+                _logger.LogInformation("Checking crashed job recovery for job {JobId}", job.Id);
+
+                var outputFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.output");
+                var pidFilePath = Path.Combine(job.CowPath, $".claude-job-{job.Id}.pid");
+
+                // Check if output file exists and is complete
+                if (File.Exists(outputFilePath))
+                {
+                    var output = await File.ReadAllTextAsync(outputFilePath);
+                    
+                    // If output contains "Exit code:" it means the job completed
+                    if (output.Contains("Exit code:"))
+                    {
+                        // Extract exit code from output
+                        var exitCodeMatch = System.Text.RegularExpressions.Regex.Match(output, @"Exit code: (\d+)");
+                        var exitCode = exitCodeMatch.Success ? int.Parse(exitCodeMatch.Groups[1].Value) : 0;
+
+                        // Mark job as completed
+                        job.Status = exitCode == 0 ? JobStatus.Completed : JobStatus.Failed;
+                        job.Output = output.Replace($"Exit code: {exitCode}", "").Trim();
+                        job.ExitCode = exitCode;
+                        job.CompletedAt = DateTime.UtcNow;
+                        job.ClaudeProcessId = null;
+
+                        recoveredJobs.Add(job);
+                        _logger.LogInformation("Recovered completed job {JobId} with exit code {ExitCode}", job.Id, exitCode);
+                        continue;
+                    }
+                }
+
+                // Check if PID file exists and process is still running
+                if (File.Exists(pidFilePath))
+                {
+                    var pidContent = await File.ReadAllTextAsync(pidFilePath);
+                    if (int.TryParse(pidContent.Trim(), out var pid))
+                    {
+                        if (IsProcessRunning(pid))
+                        {
+                            // Process is still running, update job with PID
+                            job.ClaudeProcessId = pid;
+                            _logger.LogInformation("Found running Claude Code process for job {JobId} with PID {ProcessId}", job.Id, pid);
+                            continue;
+                        }
+                        else
+                        {
+                            // Process died but no complete output, mark as failed
+                            job.Status = JobStatus.Failed;
+                            job.Output = File.Exists(outputFilePath) ? await File.ReadAllTextAsync(outputFilePath) : "Process died unexpectedly during execution";
+                            job.ExitCode = -1;
+                            job.CompletedAt = DateTime.UtcNow;
+                            job.ClaudeProcessId = null;
+
+                            recoveredJobs.Add(job);
+                            _logger.LogWarning("Recovered failed job {JobId} - process died unexpectedly", job.Id);
+                        }
+                    }
+                }
+                else
+                {
+                    // No PID file, assume job failed to start properly
+                    job.Status = JobStatus.Failed;
+                    job.Output = "Job failed to start properly - no process information found";
+                    job.ExitCode = -1;
+                    job.CompletedAt = DateTime.UtcNow;
+                    job.ClaudeProcessId = null;
+
+                    recoveredJobs.Add(job);
+                    _logger.LogWarning("Recovered failed job {JobId} - no process information found", job.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during job recovery for job {JobId}", job.Id);
+                
+                // Mark as failed on recovery error
+                job.Status = JobStatus.Failed;
+                job.Output = $"Recovery error: {ex.Message}";
+                job.ExitCode = -1;
+                job.CompletedAt = DateTime.UtcNow;
+                job.ClaudeProcessId = null;
+                
+                recoveredJobs.Add(job);
+            }
+        }
+
+        _logger.LogInformation("Job recovery completed: {RecoveredCount} jobs recovered", recoveredJobs.Count);
+        return recoveredJobs;
+    }
+
+    /// <summary>
+    /// Execute Claude Code directly (original approach for backward compatibility with tests)
+    /// </summary>
+    private async Task<(int ExitCode, string Output)> ExecuteClaudeDirectly(Job job, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Executing Claude Code directly for job {JobId} (backward compatibility mode)", job.Id);
+
+            var args = new List<string>();
+
+            // Add repository-specific arguments
+            if (job.Options.GitAware)
+            {
+                args.Add("--git");
+            }
+
+            // Add uploaded files if provided
+            if (job.UploadedFiles?.Any() == true)
+            {
+                foreach (var uploadedFile in job.UploadedFiles)
+                {
+                    var filePath = Path.Combine(job.CowPath, "files", uploadedFile);
+                    if (File.Exists(filePath))
+                    {
+                        args.Add($"--file \"{filePath}\"");
+                    }
+                }
+            }
+
+            var fullArgs = string.Join(" ", args);
+            var claudeCommand = _claudeCommand;
+
+            if (!string.IsNullOrEmpty(fullArgs))
+            {
+                claudeCommand = $"{_claudeCommand} {fullArgs}";
+            }
+
+            _logger.LogDebug("Executing command: {Command} (working directory: {WorkingDirectory})", 
+                claudeCommand, job.CowPath);
+
+            // Process placeholder replacements in the prompt before execution
+            var processedPrompt = ProcessPromptPlaceholders(job.Prompt, job.UploadedFiles);
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "bash",
+                Arguments = $"-c \"echo '{processedPrompt.Replace("'", "'\"'\"'")}' | sudo -u {userInfo.Username} -H {claudeCommand}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = job.CowPath
+            };
+
+            // Set environment variables
+            foreach (var envVar in job.Options.Environment)
+            {
+                processInfo.Environment[envVar.Key] = envVar.Value;
+            }
+
+            using var process = new Process { StartInfo = processInfo };
+            
+            var outputBuilder = new StringBuilder();
+            var errorBuilder = new StringBuilder();
+
+            process.OutputDataReceived += (sender, e) =>
+            {
+                if (e.Data != null)
+                {
+                    outputBuilder.AppendLine(e.Data);
+                }
+            };
+
+            process.ErrorDataReceived += (sender, e) =>
+            {
+                if (e.Data != null)
+                {
+                    errorBuilder.AppendLine(e.Data);
+                }
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            // Wait for process completion or cancellation
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited)
+                {
+                    try
+                    {
+                        process.Kill(true);
+                        await Task.Delay(100, CancellationToken.None); // Give time for cleanup
+                    }
+                    catch (Exception killEx)
+                    {
+                        _logger.LogWarning(killEx, "Failed to kill process during cancellation for job {JobId}", job.Id);
+                    }
+                }
+                throw;
+            }
+
+            var output = outputBuilder.ToString();
+            var error = errorBuilder.ToString();
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                output += $"\nErrors:\n{error}";
+            }
+
+            var exitCode = process.ExitCode;
+            
+            _logger.LogInformation("Claude Code execution completed for job {JobId} with exit code {ExitCode}", 
+                job.Id, exitCode);
+
+            return (exitCode, output);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Direct Claude Code execution failed for job {JobId}", job.Id);
+            return (-1, $"Execution failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Process placeholder replacements in the prompt
+    /// Supports {{filename}} patterns that get replaced with ./files/filename
+    /// </summary>
+    private string ProcessPromptPlaceholders(string prompt, List<string>? uploadedFiles)
+    {
+        if (string.IsNullOrEmpty(prompt) || uploadedFiles == null || !uploadedFiles.Any())
+            return prompt;
+
+        var processedPrompt = prompt;
+        
+        // Process each uploaded file for placeholder replacement
+        foreach (var filename in uploadedFiles)
+        {
+            var placeholder = $"{{{{{filename}}}}}"; // {{filename}}
+            var replacement = $"./files/{filename}";
+            
+            if (processedPrompt.Contains(placeholder))
+            {
+                processedPrompt = processedPrompt.Replace(placeholder, replacement);
+                _logger.LogInformation("Replaced placeholder {Placeholder} with {Replacement} in prompt for uploaded file", placeholder, replacement);
+            }
+        }
+        
+        // Also support generic {{filename}} pattern - replace with list of all files
+        var genericPlaceholder = "{{filename}}";
+        if (processedPrompt.Contains(genericPlaceholder))
+        {
+            var allFiles = string.Join(" ", uploadedFiles.Select(f => $"./files/{f}"));
+            processedPrompt = processedPrompt.Replace(genericPlaceholder, allFiles);
+            _logger.LogInformation("Replaced generic {{filename}} placeholder with all uploaded files: {AllFiles}", allFiles);
+        }
+
+        return processedPrompt;
     }
 
     private class UserInfo

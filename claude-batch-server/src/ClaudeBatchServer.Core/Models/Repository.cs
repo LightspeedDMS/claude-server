@@ -9,6 +9,7 @@ public class Repository
     public DateTime RegisteredAt { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     public string CloneStatus { get; set; } = "unknown"; // cloning, completed, failed
+    public bool CidxAware { get; set; } = false; // Whether repository is configured for cidx indexing
     public bool IsActive { get; set; } = true;
     public RepositorySettings Settings { get; set; } = new();
 }

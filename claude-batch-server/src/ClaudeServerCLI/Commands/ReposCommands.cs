@@ -215,6 +215,7 @@ public class ReposCreateCommand : AuthenticatedCommand
     private readonly Option<string> _pathOption;
     private readonly Option<string> _descriptionOption;
     private readonly Option<bool> _watchOption;
+    private readonly Option<bool> _cidxAwareOption;
 
     public ReposCreateCommand() : base("create", "Register a new repository")
     {
@@ -245,11 +246,18 @@ public class ReposCreateCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _cidxAwareOption = new Option<bool>(
+            aliases: ["--cidx-aware"],
+            description: "Enable semantic indexing with cidx (default: true)",
+            getDefaultValue: () => true
+        );
+
         AddOption(_nameOption);
         AddOption(_gitUrlOption);
         AddOption(_pathOption);
         AddOption(_descriptionOption);
         AddOption(_watchOption);
+        AddOption(_cidxAwareOption);
 
         // Add validation
         this.SetHandler(async (context) =>
@@ -282,6 +290,7 @@ public class ReposCreateCommand : AuthenticatedCommand
         var path = context.ParseResult.GetValueForOption(_pathOption);
         var description = context.ParseResult.GetValueForOption(_descriptionOption) ?? "";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
+        var cidxAware = context.ParseResult.GetValueForOption(_cidxAwareOption);
         var cancellationToken = context.GetCancellationToken();
         var apiClient = GetRequiredService<IApiClient>(context);
 
@@ -307,7 +316,8 @@ public class ReposCreateCommand : AuthenticatedCommand
             {
                 Name = name,
                 GitUrl = gitUrl ?? "",
-                Description = description
+                Description = description,
+                CidxAware = cidxAware
             };
 
             var response = await apiClient.CreateRepositoryAsync(request, cancellationToken);
@@ -340,20 +350,20 @@ public class ReposCreateCommand : AuthenticatedCommand
                 try
                 {
                     var repo = await apiClient.GetRepositoryAsync(name, cancellationToken);
-                    var status = repo.LastPullStatus ?? "cloning";
+                    var status = repo.CloneStatus ?? "cloning";
                     
-                    WriteInfo($"Clone status: {status}");
+                    WriteInfo($"Repository status: {GetStatusDisplayText(status)}");
                     
-                    if (status == "success")
+                    if (status == "completed")
                     {
-                        WriteSuccess("Repository clone completed successfully!");
+                        WriteSuccess("Repository registration completed successfully!");
                         WriteInfo($"Branch: {repo.CurrentBranch}");
                         WriteInfo($"Latest commit: {repo.CommitHash?[..8]} - {repo.CommitMessage}");
                         return 0;
                     }
-                    else if (status == "failed")
+                    else if (status == "failed" || status == "cidx_failed")
                     {
-                        WriteError("Repository clone failed!");
+                        WriteError($"Repository registration failed with status: {status}");
                         return 1;
                     }
                     
@@ -378,6 +388,19 @@ public class ReposCreateCommand : AuthenticatedCommand
             WriteInfo("Watch cancelled");
             return 0;
         }
+    }
+
+    private static string GetStatusDisplayText(string status)
+    {
+        return status switch
+        {
+            "cloning" => "Cloning repository...",
+            "cidx_indexing" => "Building semantic index with cidx...",
+            "completed" => "Ready",
+            "failed" => "Clone failed",
+            "cidx_failed" => "Cidx indexing failed",
+            _ => status
+        };
     }
 
     private static bool IsValidGitUrl(string url)
@@ -602,6 +625,14 @@ public class ReposShowCommand : AuthenticatedCommand
                     
                     if (repository.RegisteredAt.HasValue)
                         table.AddRow("📅 Registered", repository.RegisteredAt.Value.ToString("yyyy-MM-dd HH:mm:ss"));
+                    
+                    if (repository.CidxAware.HasValue)
+                    {
+                        var cidxAwareDisplay = repository.CidxAware.Value 
+                            ? "[green]✅ Yes[/]" 
+                            : "[grey]❌ No[/]";
+                        table.AddRow("🧠 Cidx Aware", cidxAwareDisplay);
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(repository.Description))

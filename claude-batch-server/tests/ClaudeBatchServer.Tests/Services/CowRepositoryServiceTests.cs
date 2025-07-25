@@ -78,28 +78,41 @@ public class CowRepositoryServiceTests
     }
 
     [Fact]
-    public async Task GetFilesAsync_WithNonExistentPath_ShouldReturnEmptyList()
+    public async Task GetFilesInDirectoryAsync_WithNonExistentPath_ShouldReturnNull()
     {
-        var files = await _repositoryService.GetFilesAsync("/nonexistent/path");
+        var files = await _repositoryService.GetFilesInDirectoryAsync("/nonexistent", "path");
 
-        files.Should().NotBeNull();
-        files.Should().BeEmpty();
+        files.Should().BeNull();
     }
 
     [Fact]
-    public async Task GetFilesAsync_WithValidPath_ShouldReturnFileList()
+    public async Task GetFilesInDirectoryAsync_WithValidPath_ShouldReturnFileList()
     {
         var testPath = Path.Combine(_testJobsPath, "test-job");
         Directory.CreateDirectory(testPath);
         File.WriteAllText(Path.Combine(testPath, "test.txt"), "test content");
         Directory.CreateDirectory(Path.Combine(testPath, "subdir"));
 
-        var files = await _repositoryService.GetFilesAsync(testPath);
+        var files = await _repositoryService.GetFilesInDirectoryAsync(testPath, "");
 
         files.Should().NotBeNull();
-        files.Should().HaveCount(2);
+        files.Should().HaveCount(1); // Only files, not directories
         files.Should().Contain(f => f.Name == "test.txt" && f.Type == "file");
-        files.Should().Contain(f => f.Name == "subdir" && f.Type == "directory");
+    }
+
+    [Fact]
+    public async Task GetDirectoriesAsync_WithValidPath_ShouldReturnDirectoryList()
+    {
+        var testPath = Path.Combine(_testJobsPath, "test-job");
+        Directory.CreateDirectory(testPath);
+        File.WriteAllText(Path.Combine(testPath, "test.txt"), "test content");
+        Directory.CreateDirectory(Path.Combine(testPath, "subdir"));
+
+        var directories = await _repositoryService.GetDirectoriesAsync(testPath, "");
+
+        directories.Should().NotBeNull();
+        directories.Should().HaveCount(1); // Only directories, not files
+        directories.Should().Contain(d => d.Name == "subdir");
     }
 
     [Fact]

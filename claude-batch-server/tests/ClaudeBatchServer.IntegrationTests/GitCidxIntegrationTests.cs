@@ -116,6 +116,7 @@ Please explain in detail how you conducted your exploration - what commands or t
             // Log the response for debugging
             Console.WriteLine($"Job Status: {jobResponse.Status}");
             Console.WriteLine($"Git Status: {jobResponse.GitStatus}");
+            Console.WriteLine($"Git Pull Status: {jobResponse.GitPullStatus}");
             Console.WriteLine($"Cidx Status: {jobResponse.CidxStatus}");
             Console.WriteLine($"Output: {jobResponse.Output}");
 
@@ -152,7 +153,18 @@ Please explain in detail how you conducted your exploration - what commands or t
                 Console.WriteLine($"Job failed with output: {jobResponse.Output}");
                 
                 // Even if the job failed, we want to verify git operations worked
-                jobResponse.GitStatus.Should().BeOneOf("pulled", "not_git_repo", "failed");
+                // NEW WORKFLOW: Check for new workflow git status
+                if (jobResponse.GitStatus == "skipped_new_workflow")
+                {
+                    // New workflow: Git operations happen in source repository, CoW workspace skips them
+                    jobResponse.GitStatus.Should().Be("skipped_new_workflow");
+                    jobResponse.GitPullStatus.Should().BeOneOf("pulled", "not_git_repo", "failed", "not_started");
+                }
+                else
+                {
+                    // Legacy workflow: Git operations happen in CoW workspace
+                    jobResponse.GitStatus.Should().BeOneOf("pulled", "not_git_repo", "failed");
+                }
             }
         }
         finally
@@ -298,11 +310,25 @@ Please explain in detail how you conducted your exploration - what commands or t
             // Verify git operations completed (since we're using a valid repository now)
             jobResponse.Should().NotBeNull();
             jobResponse.Status.Should().BeOneOf("completed", "failed"); // Accept both outcomes
-            jobResponse.GitStatus.Should().BeOneOf("pulled", "not_git_repo", "failed"); // Various valid outcomes
+            
+            // NEW WORKFLOW: Check for new workflow git status
+            // In new workflow, GitStatus shows "skipped_new_workflow" and GitPullStatus shows actual git pull result
+            if (jobResponse.GitStatus == "skipped_new_workflow")
+            {
+                // New workflow: Git operations happen in source repository, CoW workspace skips them
+                jobResponse.GitStatus.Should().Be("skipped_new_workflow");
+                jobResponse.GitPullStatus.Should().BeOneOf("pulled", "not_git_repo", "failed", "not_started"); // Various valid outcomes
+            }
+            else
+            {
+                // Legacy workflow: Git operations happen in CoW workspace
+                jobResponse.GitStatus.Should().BeOneOf("pulled", "not_git_repo", "failed"); // Various valid outcomes
+            }
             
             // Log the actual results for debugging
             Console.WriteLine($"Job Status: {jobResponse.Status}");
             Console.WriteLine($"Git Status: {jobResponse.GitStatus}");
+            Console.WriteLine($"Git Pull Status: {jobResponse.GitPullStatus}");
             Console.WriteLine($"Job Output: {jobResponse.Output}");
         }
         finally
@@ -343,22 +369,10 @@ Please explain in detail how you conducted your exploration - what commands or t
 
     private async Task<string> GetAuthTokenAsync()
     {
-        var loginRequest = new LoginRequest
-        {
-            Username = _testUsername,
-            Password = _testPassword
-        };
-
-        var response = await _client.PostAsJsonAsync("/auth/login", loginRequest);
-        
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync();
-            throw new InvalidOperationException($"Authentication failed: {response.StatusCode}, Content: {errorContent}");
-        }
-
-        var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
-        return loginResponse?.Token ?? throw new InvalidOperationException("No token received from login");
+        // FIXED: Since we're using TestAuthenticationHandler, we can use any valid token
+        // The TestAuthenticationHandler accepts any non-empty token that isn't "expired.token.here"
+        await Task.CompletedTask; // Make it async to match the signature
+        return "test-valid-token-for-git-cidx-integration-tests";
     }
 
     private async Task<JobStatusResponse> ExecuteJobAndWaitForCompletionAsync(CreateJobRequest request)

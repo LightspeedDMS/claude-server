@@ -7,7 +7,7 @@ public class Job
     public string Prompt { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Repository { get; set; } = string.Empty;
-    public List<string> Images { get; set; } = new();
+    public List<string> UploadedFiles { get; set; } = new();
     public JobStatus Status { get; set; } = JobStatus.Created;
     public string Output { get; set; } = string.Empty;
     public int? ExitCode { get; set; }
@@ -19,18 +19,20 @@ public class Job
     public DateTime? CancelledAt { get; set; }
     public string CancelReason { get; set; } = string.Empty;
     public JobOptions Options { get; set; } = new();
-    public string GitStatus { get; set; } = "not_checked";
+    public string GitPullStatus { get; set; } = "not_started"; // Status of git pull on source repository before CoW
+    public string GitStatus { get; set; } = "not_checked"; // Status of git operations in CoW workspace
     public string CidxStatus { get; set; } = "not_started";
+    public int? ClaudeProcessId { get; set; }
 }
 
 public enum JobStatus
 {
     Created,
     Queued,
-    GitPulling,
-    GitFailed,
-    CidxIndexing,
-    CidxReady,
+    GitPulling,        // Git pull on source repository
+    GitFailed,         // Git pull failed on source repository
+    CidxIndexing,      // CIDX indexing on source repository
+    CidxReady,         // CIDX ready in CoW workspace
     Running,
     Completed,
     Failed,

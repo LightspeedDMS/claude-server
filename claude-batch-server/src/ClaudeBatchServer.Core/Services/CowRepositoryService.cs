@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -21,10 +22,23 @@ public class CowRepositoryService : IRepositoryService
         _configuration = configuration;
         _logger = logger;
         _gitMetadataService = gitMetadataService;
-        _repositoriesPath = _configuration["Workspace:RepositoriesPath"] ?? "/workspace/repos";
-        _workspacePath = _configuration["Workspace:JobsPath"] ?? "/workspace/jobs";
+        _repositoriesPath = ExpandPath(_configuration["Workspace:RepositoriesPath"] ?? "/workspace/repos");
+        _workspacePath = ExpandPath(_configuration["Workspace:JobsPath"] ?? "/workspace/jobs");
         
         Task.Run(async () => await DetectCowMethodAsync());
+    }
+
+    /// <summary>
+    /// Expand ~ to the user's home directory if the path starts with ~/
+    /// </summary>
+    private static string ExpandPath(string path)
+    {
+        if (path.StartsWith("~/"))
+        {
+            var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(homeDirectory, path[2..]);
+        }
+        return path;
     }
 
     public async Task<bool> ValidateCowSupportAsync()
@@ -59,13 +73,49 @@ public class CowRepositoryService : IRepositoryService
                 IsActive = true
             };
 
-            if (File.Exists(settingsPath))
+            // CRITICAL FIX: Read settings from both internal and external files like GetRepositoriesWithMetadataAsync
+            // External settings take priority if both exist (external settings are updated during registration)
+            var internalSettingsPath = settingsPath; // Path.Combine(dir, ".claude-batch-settings.json")
+            var externalSettingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
+            
+            string? settingsToUse = null;
+            if (File.Exists(externalSettingsPath))
+                settingsToUse = externalSettingsPath; // External takes priority
+            else if (File.Exists(internalSettingsPath))
+                settingsToUse = internalSettingsPath;
+                
+            if (settingsToUse != null)
             {
                 try
                 {
-                    var settingsJson = await File.ReadAllTextAsync(settingsPath);
-                    var settings = JsonSerializer.Deserialize<RepositorySettings>(settingsJson);
-                    if (settings != null) repository.Settings = settings;
+                    var settingsJson = await File.ReadAllTextAsync(settingsToUse);
+                    var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                    
+                    if (settings != null)
+                    {
+                        // Read CloneStatus and CidxAware from settings file like GetRepositoriesWithMetadataAsync does
+                        if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
+                            repository.CloneStatus = cloneStatus.ToString() ?? string.Empty;
+                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null && bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
+                            repository.CidxAware = cidxAwareBool;
+                        if (settings.TryGetValue("GitUrl", out var gitUrl) && gitUrl != null)
+                            repository.GitUrl = gitUrl.ToString() ?? string.Empty;
+                        if (settings.TryGetValue("RegisteredAt", out var regAt) && regAt != null && DateTime.TryParse(regAt.ToString(), out var registeredAt))
+                            repository.RegisteredAt = registeredAt;
+                        if (settings.TryGetValue("Description", out var desc) && desc != null)
+                            repository.Description = desc.ToString() ?? string.Empty;
+                            
+                        // Also try to deserialize the RepositorySettings object for other settings
+                        try
+                        {
+                            var repoSettings = JsonSerializer.Deserialize<RepositorySettings>(settingsJson);
+                            if (repoSettings != null) repository.Settings = repoSettings;
+                        }
+                        catch
+                        {
+                            // Ignore RepositorySettings deserialization errors, we got the important fields above
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -106,25 +156,35 @@ public class CowRepositoryService : IRepositoryService
                 LastModified = directoryInfo.LastWriteTime
             };
 
-            // Load settings if they exist
-            var settingsPath = Path.Combine(dir, ".claude-batch-settings.json");
-            if (File.Exists(settingsPath))
+            // Load settings - try internal first, then external
+            var internalSettingsPath = Path.Combine(dir, ".claude-batch-settings.json");
+            var externalSettingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
+            
+            string? settingsToUse = null;
+            if (File.Exists(internalSettingsPath))
+                settingsToUse = internalSettingsPath;
+            else if (File.Exists(externalSettingsPath))
+                settingsToUse = externalSettingsPath;
+                
+            if (settingsToUse != null)
             {
                 try
                 {
-                    var settingsJson = await File.ReadAllTextAsync(settingsPath);
+                    var settingsJson = await File.ReadAllTextAsync(settingsToUse);
                     var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
                     
                     if (settings != null)
                     {
                         if (settings.TryGetValue("Description", out var desc) && desc != null)
-                            repository.Description = desc.ToString();
+                            repository.Description = desc.ToString() ?? string.Empty;
                         if (settings.TryGetValue("GitUrl", out var gitUrl) && gitUrl != null)
-                            repository.GitUrl = gitUrl.ToString();
+                            repository.GitUrl = gitUrl.ToString() ?? string.Empty;
                         if (settings.TryGetValue("RegisteredAt", out var regAt) && regAt != null && DateTime.TryParse(regAt.ToString(), out var registeredAt))
                             repository.RegisteredAt = registeredAt;
                         if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
-                            repository.CloneStatus = cloneStatus.ToString();
+                            repository.CloneStatus = cloneStatus.ToString() ?? string.Empty;
+                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null && bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
+                            repository.CidxAware = cidxAwareBool;
                     }
                 }
                 catch (Exception ex)
@@ -174,9 +234,9 @@ public class CowRepositoryService : IRepositoryService
         return repositories.FirstOrDefault(r => r.Name == name);
     }
 
-    public async Task<Repository> RegisterRepositoryAsync(string name, string gitUrl, string description = "")
+    public async Task<Repository> RegisterRepositoryAsync(string name, string gitUrl, string description = "", bool cidxAware = true)
     {
-        _logger.LogInformation("Registering repository {Name} from {GitUrl}", name, gitUrl);
+        _logger.LogInformation("Registering repository {Name} from {GitUrl} (CidxAware: {CidxAware})", name, gitUrl, cidxAware);
 
         // Validate input with security checks
         if (string.IsNullOrWhiteSpace(name))
@@ -210,76 +270,270 @@ public class CowRepositoryService : IRepositoryService
             CloneStatus = "cloning"
         };
 
+        // Create initial .claude-batch-settings.json file
+        var settingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
+        var settings = new
+        {
+            Name = name,
+            Description = description,
+            GitUrl = gitUrl,
+            RegisteredAt = repository.RegisteredAt,
+            CloneStatus = repository.CloneStatus,
+            CidxAware = cidxAware
+        };
+        
+        await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
+        { 
+            WriteIndented = true 
+        }));
+
+        // Start background processing (fire-and-forget)
+        _ = Task.Run(async () => await ProcessRepositoryAsync(repository, cidxAware));
+
+        return repository;
+    }
+
+    private async Task ProcessRepositoryAsync(Repository repository, bool cidxAware)
+    {
+        var settingsPath = Path.Combine(_repositoriesPath, $"{repository.Name}.settings.json");
+        
         try
         {
+            _logger.LogInformation("Starting background processing for repository {Name}", repository.Name);
+            
+            // Update status to cloning
+            await UpdateRepositoryStatusAsync(repository.Name, "cloning");
+            
             // Clone the repository using safe process execution
-            var processInfo = SecurityUtils.CreateSafeProcess("git", "clone", gitUrl, repositoryPath);
+            var processInfo = SecurityUtils.CreateSafeProcess("git", "clone", repository.GitUrl, repository.Path);
             
             using var process = new Process { StartInfo = processInfo };
             process.Start();
             
-            // Add timeout protection to prevent hanging processes
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+            // Add timeout protection to prevent hanging processes (2 hours for large repos)
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromHours(2));
             await process.WaitForExitAsync(timeoutCts.Token);
 
             if (process.ExitCode == 0)
             {
-                repository.CloneStatus = "completed";
-                _logger.LogInformation("Successfully cloned repository {Name} to {Path}", name, repositoryPath);
+                _logger.LogInformation("Successfully cloned repository {Name} to {Path}", repository.Name, repository.Path);
 
-                // Create .claude-batch-settings.json file
-                var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
-                var settings = new
+                // Run cidx indexing if enabled
+                if (cidxAware)
                 {
-                    Name = name,
-                    Description = description,
-                    GitUrl = gitUrl,
+                    await UpdateRepositoryStatusAsync(repository.Name, "cidx_indexing");
+                    _logger.LogInformation("Starting FULL cidx indexing for repository {Name} during registration", repository.Name);
+                    
+                    try
+                    {
+                        await RunCidxIndexingAsync(repository.Path, repository.Name);
+                        _logger.LogInformation("Successfully completed FULL cidx indexing for repository {Name} - ready for CoW cloning", repository.Name);
+                        await UpdateRepositoryStatusAsync(repository.Name, "completed");
+                    }
+                    catch (Exception cidxEx)
+                    {
+                        _logger.LogError(cidxEx, "FULL cidx indexing failed during registration for repository {Name}", repository.Name);
+                        await UpdateRepositoryStatusAsync(repository.Name, "cidx_failed");
+                    }
+                }
+                else
+                {
+                    await UpdateRepositoryStatusAsync(repository.Name, "completed");
+                }
+
+                // Create final .claude-batch-settings.json file in the repo directory
+                var repoSettingsPath = Path.Combine(repository.Path, ".claude-batch-settings.json");
+                var finalSettings = new
+                {
+                    Name = repository.Name,
+                    Description = repository.Description,
+                    GitUrl = repository.GitUrl,
                     RegisteredAt = repository.RegisteredAt,
-                    CloneStatus = repository.CloneStatus
+                    CloneStatus = "completed",
+                    CidxAware = cidxAware
                 };
                 
-                await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
+                await File.WriteAllTextAsync(repoSettingsPath, JsonSerializer.Serialize(finalSettings, new JsonSerializerOptions 
                 { 
                     WriteIndented = true 
                 }));
             }
             else
             {
-                repository.CloneStatus = "failed";
                 var error = await process.StandardError.ReadToEndAsync();
-                _logger.LogError("Failed to clone repository {Name}: {Error}", name, error);
+                _logger.LogError("Failed to clone repository {Name}: {Error}", repository.Name, error);
+                
+                await UpdateRepositoryStatusAsync(repository.Name, "failed");
                 
                 // Clean up failed clone directory if it exists
-                if (Directory.Exists(repositoryPath))
+                if (Directory.Exists(repository.Path))
                 {
-                    Directory.Delete(repositoryPath, true);
+                    Directory.Delete(repository.Path, true);
                 }
-                
-                throw new InvalidOperationException($"Failed to clone repository: {error}");
             }
         }
         catch (Exception ex)
         {
-            repository.CloneStatus = "failed";
-            _logger.LogError(ex, "Error cloning repository {Name}", name);
+            _logger.LogError(ex, "Error processing repository {Name}", repository.Name);
+            await UpdateRepositoryStatusAsync(repository.Name, "failed");
             
-            // Clean up on failure
-            if (Directory.Exists(repositoryPath))
+            // Clean up on failure - remove both directory and settings file
+            if (Directory.Exists(repository.Path))
             {
                 try
                 {
-                    Directory.Delete(repositoryPath, true);
+                    Directory.Delete(repository.Path, true);
+                    _logger.LogInformation("Cleaned up failed repository directory at {Path}", repository.Path);
                 }
                 catch (Exception cleanupEx)
                 {
-                    _logger.LogWarning(cleanupEx, "Failed to cleanup failed repository clone at {Path}", repositoryPath);
+                    _logger.LogWarning(cleanupEx, "Failed to cleanup failed repository clone at {Path}", repository.Path);
                 }
+            }
+            
+            // CRITICAL: Also remove the settings file when registration fails to prevent leaving crap behind
+            try
+            {
+                if (File.Exists(settingsPath))
+                {
+                    File.Delete(settingsPath);
+                    _logger.LogInformation("Cleaned up failed repository settings file at {SettingsPath}", settingsPath);
+                }
+            }
+            catch (Exception settingsCleanupEx)
+            {
+                _logger.LogError(settingsCleanupEx, "CRITICAL: Failed to cleanup failed repository settings file at {SettingsPath}", settingsPath);
+            }
+        }
+    }
+
+    private async Task UpdateRepositoryStatusAsync(string repositoryName, string status)
+    {
+        try
+        {
+            var settingsPath = Path.Combine(_repositoriesPath, $"{repositoryName}.settings.json");
+            if (File.Exists(settingsPath))
+            {
+                var settingsJson = await File.ReadAllTextAsync(settingsPath);
+                var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                
+                if (settings != null)
+                {
+                    settings["CloneStatus"] = status;
+                    await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
+                    { 
+                        WriteIndented = true 
+                    }));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update status for repository {Name}", repositoryName);
+        }
+    }
+
+    private async Task RunCidxIndexingAsync(string repositoryPath, string repositoryName)
+    {
+        _logger.LogInformation("Starting cidx indexing for repository {Name} at {Path}", repositoryName, repositoryPath);
+
+        try
+        {
+            // Step 1: Initialize cidx with voyage-ai embedding provider
+            var initResult = await ExecuteCidxCommand("init --embedding-provider voyage-ai", repositoryPath);
+            if (initResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Cidx init failed: {initResult.Output}");
+            }
+
+            // Step 2: Start cidx service
+            var startResult = await ExecuteCidxCommand("start", repositoryPath);
+            if (startResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Cidx start failed: {startResult.Output}");
+            }
+
+            // Step 3: Run indexing
+            var indexResult = await ExecuteCidxCommand("index --reconcile", repositoryPath);
+            if (indexResult.ExitCode != 0)
+            {
+                // Try to stop cidx if indexing failed
+                await ExecuteCidxCommand("stop", repositoryPath);
+                throw new InvalidOperationException($"Cidx indexing failed: {indexResult.Output}");
+            }
+
+            // Step 4: Stop cidx service after successful indexing
+            var stopResult = await ExecuteCidxCommand("stop", repositoryPath);
+            if (stopResult.ExitCode != 0)
+            {
+                _logger.LogWarning("Failed to stop cidx after indexing for repository {Name}: {Error}", repositoryName, stopResult.Output);
+            }
+
+            _logger.LogInformation("Successfully completed cidx indexing and stopped service for repository {Name}", repositoryName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cidx indexing failed for repository {Name}", repositoryName);
+            
+            // Ensure cidx is stopped even if indexing failed
+            try
+            {
+                await ExecuteCidxCommand("stop", repositoryPath);
+            }
+            catch (Exception stopEx)
+            {
+                _logger.LogWarning(stopEx, "Failed to stop cidx after indexing failure for repository {Name}", repositoryName);
             }
             
             throw;
         }
+    }
 
-        return repository;
+    private async Task<(int ExitCode, string Output)> ExecuteCidxCommand(string cidxArgs, string workingDirectory)
+    {
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = "cidx",
+            Arguments = cidxArgs,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory
+        };
+        
+        // CRITICAL: Pass through VOYAGE_API_KEY from configuration for voyage-ai embedding provider
+        var voyageApiKey = _configuration["Cidx:VoyageApiKey"];
+        if (!string.IsNullOrEmpty(voyageApiKey))
+        {
+            processInfo.EnvironmentVariables["VOYAGE_API_KEY"] = voyageApiKey;
+            _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", cidxArgs);
+        }
+        else
+        {
+            _logger.LogWarning("VOYAGE_API_KEY not configured - cidx may default to ollama");
+        }
+
+        using var process = new Process { StartInfo = processInfo };
+        var outputBuilder = new StringBuilder();
+        var errorBuilder = new StringBuilder();
+
+        process.OutputDataReceived += (sender, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+        process.ErrorDataReceived += (sender, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        // Add timeout for cidx operations (10 minutes)
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        await process.WaitForExitAsync(timeoutCts.Token);
+
+        var output = outputBuilder.ToString();
+        var error = errorBuilder.ToString();
+        var combinedOutput = string.IsNullOrEmpty(error) ? output : $"{output}\n\nErrors:\n{error}";
+
+        return (process.ExitCode, combinedOutput);
     }
 
     public async Task<bool> UnregisterRepositoryAsync(string name)
@@ -307,6 +561,33 @@ public class CowRepositoryService : IRepositoryService
             else
             {
                 _logger.LogWarning("Repository {Name} directory not found at {Path}, but considering unregistration successful", name, repository.Path);
+            }
+
+            // Remove the settings file - CRITICAL: This must always succeed to prevent leaving crap behind
+            var settingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
+            try
+            {
+                if (File.Exists(settingsPath))
+                {
+                    File.Delete(settingsPath);
+                    _logger.LogInformation("Successfully removed repository settings file {SettingsPath}", settingsPath);
+                }
+                else
+                {
+                    _logger.LogWarning("Repository settings file not found at {SettingsPath}", settingsPath);
+                }
+                
+                // Double-check the file is really gone
+                if (File.Exists(settingsPath))
+                {
+                    _logger.LogError("CRITICAL: Settings file still exists after deletion attempt: {SettingsPath}", settingsPath);
+                    throw new InvalidOperationException($"Failed to delete settings file: {settingsPath}");
+                }
+            }
+            catch (Exception settingsEx)
+            {
+                _logger.LogError(settingsEx, "CRITICAL: Failed to remove repository settings file {SettingsPath}", settingsPath);
+                throw new InvalidOperationException($"Failed to remove repository settings file '{settingsPath}': {settingsEx.Message}", settingsEx);
             }
 
             return true;
@@ -345,14 +626,32 @@ public class CowRepositoryService : IRepositoryService
                 throw new NotSupportedException("No Copy-on-Write method available");
         }
 
-        // Create both images and files directories for backward compatibility and universal file support
-        var imagesPath = Path.Combine(jobPath, "images");
+        // Create files directory for uploaded file support
         var filesPath = Path.Combine(jobPath, "files");
-        Directory.CreateDirectory(imagesPath);
         Directory.CreateDirectory(filesPath);
 
         _logger.LogInformation("Created CoW clone of {Repository} at {JobPath} using {Method}", 
             repositoryName, jobPath, _cowMethod);
+
+        // Fix cidx configuration in the CoW clone before starting containers
+        // NOTE: CoW clones inherit embedding provider config from original repo, so fix-config doesn't need embedding params
+        try
+        {
+            _logger.LogInformation("Running cidx fix-config on CoW clone at {JobPath}", jobPath);
+            var fixConfigResult = await ExecuteCidxCommand("fix-config --force", jobPath);
+            if (fixConfigResult.ExitCode != 0)
+            {
+                _logger.LogWarning("Cidx fix-config failed on CoW clone {JobPath}: {Output}", jobPath, fixConfigResult.Output);
+            }
+            else
+            {
+                _logger.LogInformation("Successfully fixed cidx configuration for CoW clone at {JobPath}", jobPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to run cidx fix-config on CoW clone {JobPath}", jobPath);
+        }
 
         return jobPath;
     }
@@ -381,43 +680,129 @@ public class CowRepositoryService : IRepositoryService
         }
     }
 
-    public async Task<List<Models.FileInfo>> GetFilesAsync(string cowPath, string? subPath = null)
+    public Task<List<Models.DirectoryMetadata>?> GetDirectoriesAsync(string cowPath, string subPath)
+    {
+        var directories = new List<Models.DirectoryMetadata>();
+        var targetPath = Path.Combine(cowPath, subPath);
+
+        if (!Directory.Exists(targetPath)) 
+            return Task.FromResult<List<Models.DirectoryMetadata>?>(null);
+
+        try
+        {
+            // Get only direct subdirectories (no recursion for scalability)
+            var directoryEntries = Directory.GetDirectories(targetPath, "*", SearchOption.TopDirectoryOnly);
+            
+            foreach (var dir in directoryEntries)
+            {
+                var dirInfo = new System.IO.DirectoryInfo(dir);
+                
+                // Skip hidden directories (starting with .)
+                if (dirInfo.Name.StartsWith('.'))
+                    continue;
+
+                // Check if this directory has subdirectories
+                bool hasSubdirectories;
+                int fileCount = 0;
+                
+                try
+                {
+                    hasSubdirectories = Directory.GetDirectories(dir, "*", SearchOption.TopDirectoryOnly).Any();
+                    fileCount = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly).Length;
+                }
+                catch
+                {
+                    // If we can't access the directory, assume it has no subdirectories
+                    hasSubdirectories = false;
+                    fileCount = 0;
+                }
+
+                var relativePath = Path.GetRelativePath(cowPath, dir);
+                
+                directories.Add(new Models.DirectoryMetadata
+                {
+                    Name = dirInfo.Name,
+                    Path = relativePath,
+                    Modified = dirInfo.LastWriteTime,
+                    HasSubdirectories = hasSubdirectories,
+                    FileCount = fileCount
+                });
+            }
+
+            return Task.FromResult<List<Models.DirectoryMetadata>?>(directories.OrderBy(d => d.Name).ToList());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error reading directories from {TargetPath}", targetPath);
+            return Task.FromResult<List<Models.DirectoryMetadata>?>(new List<Models.DirectoryMetadata>());
+        }
+    }
+
+    public Task<List<Models.FileInfo>?> GetFilesInDirectoryAsync(string cowPath, string subPath, string? mask = null)
     {
         var files = new List<Models.FileInfo>();
-        var targetPath = string.IsNullOrEmpty(subPath) ? cowPath : Path.Combine(cowPath, subPath);
+        var targetPath = Path.Combine(cowPath, subPath);
 
-        if (!Directory.Exists(targetPath)) return files;
+        if (!Directory.Exists(targetPath)) 
+            return Task.FromResult<List<Models.FileInfo>?>(null);
 
-        var directories = Directory.GetDirectories(targetPath);
-        var fileEntries = Directory.GetFiles(targetPath);
-
-        foreach (var dir in directories)
+        try
         {
-            var dirInfo = new DirectoryInfo(dir);
-            files.Add(new Models.FileInfo
+            // Get only files in the specific directory (no recursion for scalability)
+            var fileEntries = Directory.GetFiles(targetPath, "*", SearchOption.TopDirectoryOnly);
+            
+            foreach (var file in fileEntries)
             {
-                Name = dirInfo.Name,
-                Type = "directory",
-                Path = Path.GetRelativePath(cowPath, dir),
-                Size = 0,
-                Modified = dirInfo.LastWriteTime
-            });
-        }
+                var fileInfo = new System.IO.FileInfo(file);
+                
+                // Skip hidden files (starting with .)
+                if (fileInfo.Name.StartsWith('.'))
+                    continue;
+                
+                // Apply mask filtering if provided
+                if (!string.IsNullOrEmpty(mask) && !MatchesFileMask(fileInfo.Name, mask))
+                    continue;
+                
+                var relativePath = Path.GetRelativePath(cowPath, file);
+                
+                files.Add(new Models.FileInfo
+                {
+                    Name = fileInfo.Name,
+                    Type = "file",
+                    Path = relativePath,
+                    Size = fileInfo.Length,
+                    Modified = fileInfo.LastWriteTime
+                });
+            }
 
-        foreach (var file in fileEntries)
+            return Task.FromResult<List<Models.FileInfo>?>(files.OrderBy(f => f.Name).ToList());
+        }
+        catch (Exception ex)
         {
-            var fileInfo = new System.IO.FileInfo(file);
-            files.Add(new Models.FileInfo
-            {
-                Name = fileInfo.Name,
-                Type = "file",
-                Path = Path.GetRelativePath(cowPath, file),
-                Size = fileInfo.Length,
-                Modified = fileInfo.LastWriteTime
-            });
+            _logger.LogWarning(ex, "Error reading files from {TargetPath}", targetPath);
+            return Task.FromResult<List<Models.FileInfo>?>(new List<Models.FileInfo>());
         }
+    }
 
-        return files.OrderBy(f => f.Type).ThenBy(f => f.Name).ToList();
+    private bool MatchesFileMask(string fileName, string mask)
+    {
+        // Support multiple masks separated by commas
+        var masks = mask.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        
+        foreach (var singleMask in masks)
+        {
+            var trimmedMask = singleMask.Trim();
+            
+            // Convert wildcard pattern to regex
+            var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(trimmedMask)
+                .Replace("\\*", ".*")
+                .Replace("\\?", ".") + "$";
+            
+            if (System.Text.RegularExpressions.Regex.IsMatch(fileName, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+        }
+        
+        return false;
     }
 
     public async Task<byte[]?> DownloadFileAsync(string cowPath, string filePath)
@@ -559,7 +944,18 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task CreateReflinkCloneAsync(string sourcePath, string targetPath)
     {
-        var result = await ExecuteCommandAsync("cp", "-r", "--reflink=always", sourcePath, targetPath);
+        // If target already exists, remove it first to avoid permission issues with read-only files
+        if (Directory.Exists(targetPath))
+        {
+            Directory.Delete(targetPath, true);
+        }
+        
+        // Create target directory
+        Directory.CreateDirectory(targetPath);
+        
+        // Copy contents of source directory to target directory (not the directory itself)
+        // This prevents nested repository directories like /workspace/jobs/[id]/tries/tries/
+        var result = await ExecuteCommandAsync("cp", "-r", "--reflink=always", $"{sourcePath}/.", targetPath);
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"Failed to create reflink clone: {result.Error}");
@@ -568,19 +964,149 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task CreateBtrfsSnapshotAsync(string sourcePath, string targetPath)
     {
-        var result = await ExecuteCommandAsync("btrfs", "subvolume", "snapshot", sourcePath, targetPath);
-        if (result.ExitCode != 0)
+        // If target already exists, remove it first to avoid permission issues
+        if (Directory.Exists(targetPath))
         {
-            throw new InvalidOperationException($"Failed to create Btrfs snapshot: {result.Error}");
+            Directory.Delete(targetPath, true);
+        }
+        
+        // For Btrfs snapshots, we need to create the snapshot and then copy its contents
+        // to avoid nested directory structure
+        var tempSnapshotPath = $"{targetPath}_temp_snapshot";
+        
+        try
+        {
+            // Create Btrfs snapshot
+            var snapshotResult = await ExecuteCommandAsync("btrfs", "subvolume", "snapshot", sourcePath, tempSnapshotPath);
+            if (snapshotResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Failed to create Btrfs snapshot: {snapshotResult.Error}");
+            }
+            
+            // Create target directory and copy contents
+            Directory.CreateDirectory(targetPath);
+            var copyResult = await ExecuteCommandAsync("cp", "-r", $"{tempSnapshotPath}/.", targetPath);
+            if (copyResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Failed to copy snapshot contents: {copyResult.Error}");
+            }
+            
+            // Clean up temporary snapshot
+            await ExecuteCommandAsync("btrfs", "subvolume", "delete", tempSnapshotPath);
+        }
+        catch
+        {
+            // Clean up temporary snapshot on error
+            if (Directory.Exists(tempSnapshotPath))
+            {
+                try
+                {
+                    await ExecuteCommandAsync("btrfs", "subvolume", "delete", tempSnapshotPath);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Failed to clean up temporary snapshot at {Path}", tempSnapshotPath);
+                }
+            }
+            throw;
         }
     }
 
     private async Task CreateHardlinkCloneAsync(string sourcePath, string targetPath)
     {
+        // If target already exists, remove it first to avoid permission issues
+        if (Directory.Exists(targetPath))
+        {
+            Directory.Delete(targetPath, true);
+        }
+        
+        // Create target directory first
+        Directory.CreateDirectory(targetPath);
+        
+        // Use rsync to copy contents with hardlinks (not the directory itself)
+        // This prevents nested repository directories like /workspace/jobs/[id]/tries/tries/
         var result = await ExecuteCommandAsync("rsync", "-a", $"--link-dest={sourcePath}", $"{sourcePath}/", $"{targetPath}/");
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"Failed to create hardlink clone: {result.Error}");
+        }
+    }
+
+    /// <summary>
+    /// Pull latest changes from remote repository before job execution
+    /// This ensures jobs run against the most current version of the repository
+    /// </summary>
+    public async Task<(bool Success, string Status, string ErrorMessage)> PullRepositoryUpdatesAsync(string repositoryName)
+    {
+        try
+        {
+            var repository = await GetRepositoryAsync(repositoryName);
+            if (repository == null)
+                return (false, "failed", $"Repository '{repositoryName}' not found");
+
+            if (!Directory.Exists(repository.Path))
+                return (false, "failed", $"Repository path '{repository.Path}' does not exist");
+
+            // Check if directory is a git repository
+            var gitDir = Path.Combine(repository.Path, ".git");
+            if (!Directory.Exists(gitDir))
+            {
+                _logger.LogInformation("Repository {Name} is not a git repository, skipping git pull", repositoryName);
+                return (true, "not_git_repo", string.Empty);
+            }
+
+            _logger.LogInformation("Pulling latest changes for repository {Name} at {Path}", repositoryName, repository.Path);
+            
+            // Execute git pull
+            var exitCode = await ExecuteGitPullAsync(repository.Path);
+            
+            if (exitCode == 0)
+            {
+                _logger.LogInformation("Successfully pulled latest changes for repository {Name}", repositoryName);
+                return (true, "pulled", string.Empty);
+            }
+            else
+            {
+                _logger.LogError("Git pull failed for repository {Name} with exit code {ExitCode}", 
+                    repositoryName, exitCode);
+                return (false, "failed", $"Git pull failed with exit code {exitCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error pulling repository updates for {Name}", repositoryName);
+            return (false, "failed", $"Git pull error: {ex.Message}");
+        }
+    }
+
+    private async Task<int> ExecuteGitPullAsync(string repositoryPath)
+    {
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = "pull origin HEAD",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = repositoryPath
+            };
+
+            using var process = new Process { StartInfo = processInfo };
+            process.Start();
+            
+            // Add timeout for git operations (5 minutes)
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            await process.WaitForExitAsync(timeoutCts.Token);
+
+            return process.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to execute git pull for repository at {Path}", repositoryPath);
+            return -1;
         }
     }
 

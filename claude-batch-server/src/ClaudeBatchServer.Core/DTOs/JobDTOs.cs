@@ -36,6 +36,7 @@ public class JobStatusResponse
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public string GitPullStatus { get; set; } = "not_started";
     public string GitStatus { get; set; } = "not_checked";
     public string CidxStatus { get; set; } = "not_started";
 }

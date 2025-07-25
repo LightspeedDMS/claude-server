@@ -80,61 +80,98 @@ rm -f /tmp/test-cow
 
 ## Configuration
 
-### 1. Environment Setup
-```bash
-# Copy environment template
-cp docker/.env.example docker/.env
+### 1. Configuration Files Setup
 
-# Edit configuration
-nano docker/.env
+The application uses ASP.NET Core configuration files instead of environment variables:
+
+```bash
+# Main configuration file
+nano src/ClaudeBatchServer.Api/appsettings.json
+
+# Development overrides  
+nano src/ClaudeBatchServer.Api/appsettings.Development.json
 ```
 
-### 2. Key Configuration Options
+### 2. Key Configuration Sections
 
-**Required Settings:**
-```bash
-# JWT secret (32+ characters)
-JWT_KEY="YourSuperSecretJwtKeyThatShouldBe32CharactersOrLonger!"
-
-# Workspace paths
-WORKSPACE_REPOSITORIES_PATH="/workspace/repos"
-WORKSPACE_JOBS_PATH="/workspace/jobs"
-
-# Job limits  
-MAX_CONCURRENT_JOBS=5
-JOB_TIMEOUT_HOURS=24
-
-# Claude configuration
-CLAUDE_COMMAND="claude --dangerously-skip-permissions"
+**Required Settings in appsettings.json:**
+```json
+{
+  "Jwt": {
+    "Key": "YourSuperSecretJwtKeyThatShouldBe32CharactersOrLonger!",
+    "ExpiryHours": "24"
+  },
+  "Workspace": {
+    "RepositoriesPath": "~/claude-code-server-workspace/repos",
+    "JobsPath": "~/claude-code-server-workspace/jobs"
+  },
+  "Jobs": {
+    "MaxConcurrent": "5",
+    "TimeoutHours": "24",
+    "UseNewWorkflow": "true"
+  },
+  "Claude": {
+    "Command": "claude"
+  }
+}
 ```
 
-**Optional Settings:**
-```bash
-# Custom ports
-HTTP_PORT=8080
-HTTPS_PORT=8443
+**Authentication Settings (appsettings.Development.json):**
+```json
+{
+  "Auth": {
+    "ShadowFilePath": "~/Dev/claude-server/claude-batch-server/claude-server-shadow",
+    "PasswdFilePath": "~/Dev/claude-server/claude-batch-server/claude-server-passwd"
+  }
+}
+```
 
-# Logging
-LOG_LEVEL="Information"
-LOG_PATH="/var/log/claude-batch-server"
-
-# System prompts
-CIDX_AVAILABLE_TEMPLATE_PATH="SystemPrompts/cidx-system-prompt-template.txt"
-CIDX_UNAVAILABLE_TEMPLATE_PATH="SystemPrompts/cidx-unavailable-system-prompt-template.txt"
+**Optional Logging Configuration:**
+```json
+{
+  "Serilog": {
+    "WriteTo": [
+      {
+        "Name": "File",
+        "Args": {
+          "path": "~/claude-batch-server-logs/app-.log",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 7
+        }
+      }
+    ]
+  }
+}
 ```
 
 ### 3. User Authentication Setup
 
-**Create test user:**
+**Create test user and shadow files:**
 ```bash
-# Add system user for testing
-sudo useradd -m -s /bin/bash testuser
+# Create custom shadow and passwd files for the application
+# These are NOT system files - they're application-specific
 
-# Set password
-sudo passwd testuser
+# Create passwd file entry
+echo "testuser:x:1000:1000:Test User:/home/testuser:/bin/bash" > claude-server-passwd
 
-# Generate password hash for API authentication
-python3 -c "import crypt; print(crypt.crypt('your_password', crypt.mksalt(crypt.METHOD_SHA512)))"
+# Generate password hash
+HASH=$(python3 -c "import crypt; print(crypt.crypt('testpassword', crypt.mksalt(crypt.METHOD_SHA512)))")
+
+# Create shadow file entry  
+echo "testuser:$HASH:19000:0:99999:7:::" > claude-server-shadow
+
+# Secure the files
+chmod 600 claude-server-shadow
+chmod 644 claude-server-passwd
+```
+
+**User management scripts:**
+```bash  
+# Use provided scripts for user management
+./scripts/add-user.sh testuser testpassword
+./scripts/list-users.sh
+./scripts/update-user.sh testuser newpassword
+./scripts/remove-user.sh testuser
 ```
 
 ## Deployment Options
@@ -209,10 +246,10 @@ sudo systemctl status claude-batch-server
 
 ### 1. Create Workspace Directories
 ```bash
-# Create workspace directories
-sudo mkdir -p /workspace/{repos,jobs}
-sudo chown -R root:root /workspace
-sudo chmod 755 /workspace /workspace/repos /workspace/jobs
+# Create workspace directories (using tilde expansion paths)
+mkdir -p ~/claude-code-server-workspace/{repos,jobs}
+mkdir -p ~/claude-code-server-workspace/jobs/staging
+chmod 755 ~/claude-code-server-workspace ~/claude-code-server-workspace/repos ~/claude-code-server-workspace/jobs
 ```
 
 ### 2. Configure Log Rotation

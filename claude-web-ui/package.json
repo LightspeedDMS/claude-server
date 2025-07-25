@@ -1,0 +1,25 @@
+{
+  "name": "claude-web-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:real": "playwright test tests/e2e/real-*.spec.js",
+    "test:e2e:ui-only": "playwright test --config playwright.config.ui-only.js",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@vitest/ui": "^1.0.0",
+    "jsdom": "^23.0.0",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

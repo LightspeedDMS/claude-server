@@ -12,7 +12,10 @@ A dockerized REST API server written in .NET Core that automates Claude Code exe
 - **📋 Job Queue System**: Configurable concurrent job processing with queue management
 - **👤 User Impersonation**: Secure execution of Claude Code as authenticated users
 - **🔒 Multi-User Support**: Complete isolation between user sessions
+- **📄 File Staging System**: Upload files to staging area with automatic copy to job workspace
+- **🔗 Placeholder Replacement**: {{filename}} placeholders in prompts replaced with uploaded filenames
 - **🌐 RESTful API**: Comprehensive API for job management, repository management, file operations
+- **🏠 Tilde Path Expansion**: Configuration paths support ~/home directory expansion
 - **🐳 Docker Support**: Full containerization with privileged mode support
 
 ## Architecture
@@ -50,22 +53,30 @@ sudo ./scripts/install.sh
 
 ### Configuration
 
-1. Copy the environment template:
-```bash
-cp docker/.env.example docker/.env
-```
+The application uses `appsettings.json` and `appsettings.Development.json` for configuration. All paths support tilde (`~`) expansion for user home directory.
 
-2. Edit the configuration:
-```bash
-nano docker/.env
-```
+Key configuration sections:
 
-3. Key configuration options:
-- `JWT_KEY`: Secret key for JWT token signing (32+ characters)
-- `MAX_CONCURRENT_JOBS`: Maximum number of concurrent jobs (default: 5)
-- `JOB_TIMEOUT_HOURS`: Job timeout in hours (default: 24)
-- `WORKSPACE_REPOSITORIES_PATH`: Repository storage path (default: /workspace/repos)
-- `WORKSPACE_JOBS_PATH`: Job workspace path (default: /workspace/jobs)
+```json
+{
+  "Workspace": {
+    "RepositoriesPath": "~/claude-code-server-workspace/repos",
+    "JobsPath": "~/claude-code-server-workspace/jobs"
+  },
+  "Jobs": {
+    "MaxConcurrent": "5",
+    "TimeoutHours": "24",
+    "UseNewWorkflow": "true"
+  },
+  "Jwt": {
+    "Key": "YourSuperSecretJwtKeyThatShouldBe32CharactersOrLonger!",
+    "ExpiryHours": "24"
+  },
+  "Auth": {
+    "ShadowFilePath": "~/Dev/claude-server/claude-batch-server/claude-server-shadow",
+    "PasswdFilePath": "~/Dev/claude-server/claude-batch-server/claude-server-passwd"
+  }
+}
 
 ### Running with Docker
 
@@ -259,17 +270,43 @@ Download file from job workspace.
 #### GET /jobs/{jobId}/files/content?path=/path/to/file
 Get text file content.
 
-#### POST /jobs/{jobId}/images
-Upload images for job.
+#### POST /jobs/{jobId}/files
+Upload files for job with support for {{filename}} placeholder replacement in prompts.
+
+**File Upload with Staging:**
+```bash
+curl -X POST http://localhost:5000/jobs/{jobId}/files \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "files=@screenshot.png" \
+  -F "files=@data.csv"
+```
+
+Response:
+```json
+[
+  {
+    "filename": "screenshot.png",
+    "path": "/staging/screenshot.png",
+    "serverPath": "/full/server/path/screenshot.png",
+    "fileType": "image/png",
+    "fileSize": 12345,
+    "overwritten": false
+  }
+]
+```
 
 ## Git + Cidx Integration
 
 ### Git Integration Workflow
 
-1. **Repository Registration**: Clone Git repositories via API to `/workspace/repos/`
-2. **Job Creation**: Create CoW clone of repository to `/workspace/jobs/{jobId}/`
-3. **Pre-Execution Git Pull**: Automatic `git pull` to get latest changes
-4. **Failure Handling**: Jobs fail with "git_failed" status if git operations fail
+1. **Repository Registration**: Clone Git repositories via API to configured repositories path
+2. **Job Creation**: Create CoW clone of repository to job workspace  
+3. **File Upload Staging**: Files uploaded to staging area with hash-based naming to prevent conflicts
+4. **Pre-Execution Setup**: 
+   - Automatic `git pull` to get latest changes
+   - Copy staged files to job workspace (removing hash from filenames)
+   - Replace {{filename}} placeholders in prompts with actual uploaded filenames
+5. **Failure Handling**: Jobs fail with "git_failed" status if git operations fail
 
 ### Cidx Semantic Search Workflow
 
@@ -394,13 +431,13 @@ The system automatically detects and uses the most efficient CoW method:
 
 ## Configuration
 
-### Workspace Paths
+### Workspace Paths (with Tilde Expansion)
 
 ```json
 {
   "Workspace": {
-    "RepositoriesPath": "/workspace/repos",
-    "JobsPath": "/workspace/jobs"
+    "RepositoriesPath": "~/claude-code-server-workspace/repos",
+    "JobsPath": "~/claude-code-server-workspace/jobs"
   }
 }
 ```

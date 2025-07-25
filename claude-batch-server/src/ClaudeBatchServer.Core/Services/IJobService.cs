@@ -5,6 +5,7 @@ namespace ClaudeBatchServer.Core.Services;
 
 public interface IJobService
 {
+    Task InitializeAsync();
     Task<CreateJobResponse> CreateJobAsync(CreateJobRequest request, string username);
     Task<StartJobResponse> StartJobAsync(Guid jobId, string username);
     Task<JobStatusResponse?> GetJobStatusAsync(Guid jobId, string username);

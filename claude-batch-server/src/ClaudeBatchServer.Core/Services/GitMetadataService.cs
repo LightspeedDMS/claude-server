@@ -33,17 +33,17 @@ public class GitMetadataService : IGitMetadataService
         _logger = logger;
     }
 
-    public async Task<bool> IsGitRepositoryAsync(string path)
+    public Task<bool> IsGitRepositoryAsync(string path)
     {
         try
         {
             var gitDir = Path.Combine(path, ".git");
-            return Directory.Exists(gitDir) || File.Exists(gitDir);
+            return Task.FromResult(Directory.Exists(gitDir) || File.Exists(gitDir));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error checking if {Path} is a git repository", path);
-            return false;
+            return Task.FromResult(false);
         }
     }
 

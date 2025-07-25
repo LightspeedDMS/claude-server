@@ -17,7 +17,18 @@ public class HashAuthenticationTests
         _mockConfiguration.Setup(c => c["Jwt:Key"]).Returns("TestKeyForHashAuthenticationThatIsLongEnough");
         _mockConfiguration.Setup(c => c["Jwt:ExpiryHours"]).Returns("24");
         
-        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object);
+        // Create test signing key
+        var keyBytes = System.Text.Encoding.ASCII.GetBytes("TestKeyForHashAuthenticationThatIsLongEnough");
+        var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
+        
+        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, signingKey);
+    }
+
+    private TestableAuthService CreateTestableAuthService()
+    {
+        var keyBytes = System.Text.Encoding.ASCII.GetBytes("TestKeyForHashAuthenticationThatIsLongEnough");
+        var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
+        return new TestableAuthService(_mockConfiguration.Object, signingKey);
     }
 
     [Theory]
@@ -60,7 +71,7 @@ public class HashAuthenticationTests
     {
         var hashPassword = "$6$randomsalt$veryLongSHA512HashString123456789012345678901234567890";
         
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestIsPrecomputedHash(hashPassword);
 
         result.Should().BeTrue();
@@ -71,7 +82,7 @@ public class HashAuthenticationTests
     {
         var hashPassword = "$5$anothersalt$sha256HashString123456789012345678";
         
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestIsPrecomputedHash(hashPassword);
 
         result.Should().BeTrue();
@@ -82,7 +93,7 @@ public class HashAuthenticationTests
     {
         var hashPassword = "$1$md5salt$md5HashString123";
         
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestIsPrecomputedHash(hashPassword);
 
         result.Should().BeTrue();
@@ -96,7 +107,7 @@ public class HashAuthenticationTests
     [InlineData("no-dollar-signs")]
     public void IsPrecomputedHash_WithInvalidFormat_ShouldReturnFalse(string password)
     {
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestIsPrecomputedHash(password);
 
         result.Should().BeFalse();
@@ -107,7 +118,7 @@ public class HashAuthenticationTests
     {
         var hash = "$6$salt123$hashvalue456789";
         
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestVerifyPrecomputedHash(hash, hash);
 
         result.Should().BeTrue();
@@ -119,7 +130,7 @@ public class HashAuthenticationTests
         var hash1 = "$6$salt123$hashvalue456789";
         var hash2 = "$6$salt123$differenthash123";
         
-        var authService = new TestableAuthService(_mockConfiguration.Object);
+        var authService = CreateTestableAuthService();
         var result = authService.TestVerifyPrecomputedHash(hash1, hash2);
 
         result.Should().BeFalse();
@@ -129,7 +140,7 @@ public class HashAuthenticationTests
 // Test helper class to expose private methods for testing
 internal class TestableAuthService : ShadowFileAuthenticationService
 {
-    public TestableAuthService(IConfiguration configuration) : base(configuration) { }
+    public TestableAuthService(IConfiguration configuration, Microsoft.IdentityModel.Tokens.SymmetricSecurityKey signingKey) : base(configuration, signingKey) { }
 
     public bool TestIsPrecomputedHash(string password)
     {

@@ -226,7 +226,19 @@ public class JobsController : ControllerBase
 
     private string? GetCurrentUsername()
     {
-        return HttpContext.User.Identity?.Name;
+        // Try Identity.Name first (if claims are mapped correctly)
+        var identityName = HttpContext.User.Identity?.Name;
+        if (!string.IsNullOrEmpty(identityName))
+            return identityName;
+            
+        // Fallback to direct claim lookup for JWT tokens
+        var nameClaim = HttpContext.User.Claims.FirstOrDefault(c => 
+            c.Type == "unique_name" || 
+            c.Type == "name" || 
+            c.Type == System.Security.Claims.ClaimTypes.Name ||
+            c.Type == System.Security.Claims.ClaimTypes.NameIdentifier);
+            
+        return nameClaim?.Value;
     }
     
 }
