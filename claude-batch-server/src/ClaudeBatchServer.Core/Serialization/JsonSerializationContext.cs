@@ -21,6 +21,7 @@ namespace ClaudeBatchServer.Core.Serialization;
 [JsonSerializable(typeof(int))]
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(DateTime))]
+[JsonSerializable(typeof(JsonElement))]
 public partial class AppJsonSerializerContext : JsonSerializerContext
 {
 }

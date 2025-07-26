@@ -89,6 +89,9 @@ public class GitCidxIntegrationTests : IClassFixture<WebApplicationFactory<Progr
             // Setup: Register the tries.git repository via API
             await RegisterTriesRepositoryAsync(repoName);
             
+            // Wait for repository cloning to complete before creating CIDX-aware job
+            await WaitForRepositoryReadyAsync(repoName);
+            
             var explorationPrompt = @"Explore this repository and find how many test files are testing TStringHashTrie. 
 Please explain in detail how you conducted your exploration - what commands or tools you used to search through the codebase.";
 
@@ -207,6 +210,9 @@ Please explain in detail how you conducted your exploration - what commands or t
             // Setup: Register the tries.git repository via API
             await RegisterTriesRepositoryAsync(repoName);
             
+            // Wait for repository cloning to complete before creating job
+            await WaitForRepositoryReadyAsync(repoName);
+            
             var explorationPrompt = @"Explore this repository and find how many test files are testing TStringHashTrie. 
 Please explain in detail how you conducted your exploration - what commands or tools you used to search through the codebase.";
 
@@ -288,6 +294,9 @@ Please explain in detail how you conducted your exploration - what commands or t
         {
             // Setup: Register a test repository for git operations testing
             actualRepoName = await RegisterInvalidGitRepositoryAsync(repoName);
+            
+            // Wait for repository cloning to complete before creating job
+            await WaitForRepositoryReadyAsync(actualRepoName);
 
             var simplePrompt = "List the files in this directory.";
 
@@ -419,6 +428,10 @@ Please explain in detail how you conducted your exploration - what commands or t
 
     private async Task RegisterTriesRepositoryAsync(string repoName)
     {
+        // CRITICAL: Clean up any existing repository before attempting registration
+        // This prevents git clone failures due to existing directories
+        await CleanupRepositoryBeforeRegistrationAsync(repoName);
+        
         var registerRequest = new RegisterRepositoryRequest
         {
             Name = repoName,
@@ -491,6 +504,86 @@ Please explain in detail how you conducted your exploration - what commands or t
         {
             var error = await process.StandardError.ReadToEndAsync();
             throw new InvalidOperationException($"Git command failed: {arguments}. Error: {error}");
+        }
+    }
+
+    private async Task WaitForRepositoryReadyAsync(string repoName)
+    {
+        Console.WriteLine($"Waiting for repository {repoName} to be ready...");
+        
+        var timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for repository cloning
+        var startTime = DateTime.UtcNow;
+        
+        while (DateTime.UtcNow - startTime < timeout)
+        {
+            try
+            {
+                var response = await _client.GetAsync($"/repositories/{repoName}");
+                if (response.IsSuccessStatusCode)
+                {
+                    var repository = await response.Content.ReadFromJsonAsync<RepositoryResponse>();
+                    if (repository != null && repository.CloneStatus == "completed")
+                    {
+                        Console.WriteLine($"Repository {repoName} is ready with status: {repository.CloneStatus}");
+                        return;
+                    }
+                    
+                    Console.WriteLine($"Repository {repoName} status: {repository?.CloneStatus ?? "unknown"} - waiting...");
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to check repository {repoName} status: {response.StatusCode} - waiting...");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error checking repository {repoName} status: {ex.Message} - waiting...");
+            }
+            
+            await Task.Delay(2000); // Poll every 2 seconds
+        }
+        
+        throw new TimeoutException($"Repository {repoName} did not become ready within {timeout.TotalMinutes} minutes");
+    }
+
+    private async Task CleanupRepositoryBeforeRegistrationAsync(string repoName)
+    {
+        try
+        {
+            Console.WriteLine($"Cleaning up any existing repository {repoName} before registration...");
+            
+            // First, try to unregister via API if it exists
+            var checkResponse = await _client.GetAsync($"/repositories/{repoName}");
+            if (checkResponse.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Found existing repository {repoName}, unregistering via API...");
+                await UnregisterRepositoryAsync(repoName);
+            }
+            
+            // Also clean up any leftover directory directly (in case API cleanup failed)
+            var repoDirectoryPath = Path.Combine(_testRepoPath, repoName);
+            if (Directory.Exists(repoDirectoryPath))
+            {
+                Console.WriteLine($"Cleaning up leftover repository directory at {repoDirectoryPath}...");
+                try
+                {
+                    // Try to delete the directory - if there are permission issues, log and continue
+                    Directory.Delete(repoDirectoryPath, true);
+                    Console.WriteLine($"Successfully cleaned up repository directory {repoDirectoryPath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to clean up directory {repoDirectoryPath}: {ex.Message}");
+                    // Don't throw - let the test proceed and see if registration can handle it
+                }
+            }
+            
+            Console.WriteLine($"Repository cleanup for {repoName} completed");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Repository cleanup failed for {repoName}: {ex.Message}");
+            // Don't throw - let the test proceed
         }
     }
 

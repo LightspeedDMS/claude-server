@@ -74,16 +74,8 @@ public class CowRepositoryService : IRepositoryService
                 IsActive = true
             };
 
-            // CRITICAL FIX: Read settings from both internal and external files like GetRepositoriesWithMetadataAsync
-            // External settings take priority if both exist (external settings are updated during registration)
-            var internalSettingsPath = settingsPath; // Path.Combine(dir, ".claude-batch-settings.json")
-            var externalSettingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
-            
-            string? settingsToUse = null;
-            if (File.Exists(externalSettingsPath))
-                settingsToUse = externalSettingsPath; // External takes priority
-            else if (File.Exists(internalSettingsPath))
-                settingsToUse = internalSettingsPath;
+            // Use only internal settings file - eliminates dual file synchronization issues
+            string? settingsToUse = File.Exists(settingsPath) ? settingsPath : null;
                 
             if (settingsToUse != null)
             {
@@ -157,15 +149,9 @@ public class CowRepositoryService : IRepositoryService
                 LastModified = directoryInfo.LastWriteTime
             };
 
-            // Load settings - try internal first, then external
-            var internalSettingsPath = Path.Combine(dir, ".claude-batch-settings.json");
-            var externalSettingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
-            
-            string? settingsToUse = null;
-            if (File.Exists(internalSettingsPath))
-                settingsToUse = internalSettingsPath;
-            else if (File.Exists(externalSettingsPath))
-                settingsToUse = externalSettingsPath;
+            // Use only internal settings file - eliminates dual file synchronization issues
+            var settingsPath = Path.Combine(dir, ".claude-batch-settings.json");
+            string? settingsToUse = File.Exists(settingsPath) ? settingsPath : null;
                 
             if (settingsToUse != null)
             {
@@ -271,19 +257,9 @@ public class CowRepositoryService : IRepositoryService
             CloneStatus = "cloning"
         };
 
-        // Create initial .claude-batch-settings.json file
-        var settingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
-        var settings = new Dictionary<string, object>
-        {
-            ["Name"] = name,
-            ["Description"] = description,
-            ["GitUrl"] = gitUrl,
-            ["RegisteredAt"] = repository.RegisteredAt,
-            ["CloneStatus"] = repository.CloneStatus,
-            ["CidxAware"] = cidxAware
-        };
-        
-        await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
+        // Note: We don't create the repository directory or settings file here anymore
+        // The directory will be created by git clone, and the settings file will be created 
+        // after successful cloning in ProcessRepositoryAsync
 
         // Start background processing (fire-and-forget)
         _ = Task.Run(async () => await ProcessRepositoryAsync(repository, cidxAware));
@@ -293,7 +269,8 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task ProcessRepositoryAsync(Repository repository, bool cidxAware)
     {
-        var settingsPath = Path.Combine(_repositoriesPath, $"{repository.Name}.settings.json");
+        var repositoryPath = Path.Combine(_repositoriesPath, repository.Name);
+        var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
         
         try
         {
@@ -394,6 +371,12 @@ public class CowRepositoryService : IRepositoryService
                     File.Delete(settingsPath);
                     _logger.LogInformation("Cleaned up failed repository settings file at {SettingsPath}", settingsPath);
                 }
+                // Also clean up the repository directory if it was created
+                if (Directory.Exists(repositoryPath) && !Directory.EnumerateFileSystemEntries(repositoryPath).Any())
+                {
+                    Directory.Delete(repositoryPath);
+                    _logger.LogInformation("Cleaned up empty repository directory at {RepositoryPath}", repositoryPath);
+                }
             }
             catch (Exception settingsCleanupEx)
             {
@@ -406,7 +389,8 @@ public class CowRepositoryService : IRepositoryService
     {
         try
         {
-            var settingsPath = Path.Combine(_repositoriesPath, $"{repositoryName}.settings.json");
+            var repositoryPath = Path.Combine(_repositoriesPath, repositoryName);
+            var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
             if (File.Exists(settingsPath))
             {
                 var settingsJson = await File.ReadAllTextAsync(settingsPath);
@@ -544,6 +528,31 @@ public class CowRepositoryService : IRepositoryService
 
         try
         {
+            // CRITICAL: If repository is CIDX-aware, run cidx uninstall first to clean up root-owned data and containers
+            if (repository.CidxAware && Directory.Exists(repository.Path))
+            {
+                _logger.LogInformation("Repository {Name} is CIDX-aware, running cidx uninstall to clean up containers and root-owned data", name);
+                
+                try
+                {
+                    var uninstallResult = await ExecuteCidxCommand("uninstall --force", repository.Path);
+                    if (uninstallResult.ExitCode == 0)
+                    {
+                        _logger.LogInformation("Successfully ran cidx uninstall for repository {Name}", name);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Cidx uninstall returned non-zero exit code {ExitCode} for repository {Name}: {Output}", 
+                            uninstallResult.ExitCode, name, uninstallResult.Output);
+                    }
+                }
+                catch (Exception cidxEx)
+                {
+                    _logger.LogError(cidxEx, "Failed to run cidx uninstall for repository {Name}, continuing with removal", name);
+                    // Continue with removal even if cidx uninstall fails
+                }
+            }
+
             // Remove the repository directory and all its contents
             if (Directory.Exists(repository.Path))
             {
@@ -555,32 +564,9 @@ public class CowRepositoryService : IRepositoryService
                 _logger.LogWarning("Repository {Name} directory not found at {Path}, but considering unregistration successful", name, repository.Path);
             }
 
-            // Remove the settings file - CRITICAL: This must always succeed to prevent leaving crap behind
-            var settingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
-            try
-            {
-                if (File.Exists(settingsPath))
-                {
-                    File.Delete(settingsPath);
-                    _logger.LogInformation("Successfully removed repository settings file {SettingsPath}", settingsPath);
-                }
-                else
-                {
-                    _logger.LogWarning("Repository settings file not found at {SettingsPath}", settingsPath);
-                }
-                
-                // Double-check the file is really gone
-                if (File.Exists(settingsPath))
-                {
-                    _logger.LogError("CRITICAL: Settings file still exists after deletion attempt: {SettingsPath}", settingsPath);
-                    throw new InvalidOperationException($"Failed to delete settings file: {settingsPath}");
-                }
-            }
-            catch (Exception settingsEx)
-            {
-                _logger.LogError(settingsEx, "CRITICAL: Failed to remove repository settings file {SettingsPath}", settingsPath);
-                throw new InvalidOperationException($"Failed to remove repository settings file '{settingsPath}': {settingsEx.Message}", settingsEx);
-            }
+            // Internal settings file is automatically removed with the repository directory
+            // No separate external settings file cleanup needed anymore
+            _logger.LogInformation("Successfully unregistered repository {Name} (internal settings automatically removed with directory)", name);
 
             return true;
         }

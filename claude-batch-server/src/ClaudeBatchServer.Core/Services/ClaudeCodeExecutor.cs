@@ -474,9 +474,10 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
         try
         {
             // Check if repository has completed status and is cidx-aware
-            // Repository settings file should exist in the repositories directory
+            // Repository settings file should exist in the repository directory
             var repositoriesPath = Path.Combine(Directory.GetCurrentDirectory(), "workspace", "repos");
-            var settingsFile = Path.Combine(repositoriesPath, $"{repositoryName}.settings.json");
+            var repositoryPath = Path.Combine(repositoriesPath, repositoryName);
+            var settingsFile = Path.Combine(repositoryPath, ".claude-batch-settings.json");
             
             if (!File.Exists(settingsFile))
             {
