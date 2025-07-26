@@ -2233,8 +2233,8 @@ fi
 
     printf "%b📚 Additional Resources:%b\n\n" "$YELLOW" "$NC"
     printf "%bAPI Documentation:%b\n" "$BLUE" "$NC"
-    printf "• Swagger UI: %bhttp://%s%s:%s/swagger%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
-    printf "• Health Check: %bhttp://%s%s:%s/health%b\n\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Swagger UI: %b%s://%s:%s/swagger%b\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Health Check: %b%s://%s:%s/health%b\n\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
     
     printf "%bSystem Logs:%b\n" "$BLUE" "$NC"
     printf "• Application logs: %b/var/log/claude-batch-server/%b\n" "$BLUE" "$NC"
