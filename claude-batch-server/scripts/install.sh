@@ -408,7 +408,7 @@ dry_run_analyze_production() {
         dry_run_result "✗ nginx configuration missing"
         dry_run_action "Create nginx configuration: $nginx_conf"
         dry_run_action "Enable site: ln -s $nginx_conf /etc/nginx/sites-enabled/"
-        dry_run_action "Test nginx configuration: nginx -t"
+        dry_run_action "Test nginx configuration: sudo nginx -t"
         dry_run_action "Reload nginx: sudo systemctl reload nginx"
     fi
     
@@ -757,7 +757,12 @@ install_nginx() {
     fi
     
     # Verify installation
-    verify_command "nginx" "-t"
+    if ! sudo nginx -t >/dev/null 2>&1; then
+        error "nginx configuration test failed"
+        return 1
+    else
+        log "nginx configuration test passed"
+    fi
     verify_service "nginx"
     verify_port "80"
 }
@@ -1908,8 +1913,11 @@ validate_installation() {
     # Production-specific validations
     if [[ "$PRODUCTION_MODE" == "true" ]]; then
         # Check nginx
-        if ! verify_command "nginx" "-t"; then
+        if ! sudo nginx -t >/dev/null 2>&1; then
+            error "nginx configuration test failed"
             ((errors++))
+        else
+            log "nginx configuration verified"
         fi
         
         # Check SSL certificates
