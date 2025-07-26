@@ -204,11 +204,20 @@ curl -X POST http://localhost:8080/auth/login \
 ### Systemd Deployment
 
 #### 1. Create Service File
+
+**CRITICAL**: The service must include the Claude Code binary in PATH:
+
 ```bash
+# First, determine where Claude Code is installed
+CLAUDE_PATH=$(which claude 2>/dev/null || echo "$HOME/.local/bin/claude")
+CLAUDE_DIR=$(dirname "$CLAUDE_PATH")
+
+# Create the service file with correct PATH
 sudo tee /etc/systemd/system/claude-batch-server.service << EOF
 [Unit]
 Description=Claude Batch Server
-After=network.target
+After=network.target docker.service
+Requires=docker.service
 
 [Service]
 Type=simple
@@ -219,10 +228,34 @@ Restart=always
 RestartSec=10
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://localhost:5000
+Environment=PATH=$CLAUDE_DIR:/root/.dotnet:/root/.dotnet/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DOTNET_ROOT=/root/.dotnet
 
 [Install]
 WantedBy=multi-user.target
 EOF
+```
+
+**Common Claude Code Installation Paths:**
+- `$HOME/.local/bin/claude` (most common)
+- `/usr/local/bin/claude` 
+- `/opt/claude/bin/claude`
+
+**Path Configuration Examples:**
+
+For user installation (`~/.local/bin/claude`):
+```bash
+Environment=PATH=/root/.local/bin:/root/.dotnet:/root/.dotnet/bin:/usr/local/bin:/usr/bin:/bin
+```
+
+For system installation (`/usr/local/bin/claude`):
+```bash
+Environment=PATH=/usr/local/bin:/root/.dotnet:/root/.dotnet/bin:/usr/bin:/bin
+```
+
+For custom installation (`/opt/claude/bin/claude`):
+```bash
+Environment=PATH=/opt/claude/bin:/root/.dotnet:/root/.dotnet/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
 #### 2. Deploy Application
@@ -382,6 +415,102 @@ du -sh /workspace/jobs/*
 ## Troubleshooting
 
 ### Common Issues
+
+#### Claude Code Command Not Found (Exit Code 127)
+
+**Symptoms**: Jobs fail with "command not found" error, exit code 127
+
+**Cause**: systemd service PATH doesn't include Claude Code binary location
+
+**Solution**:
+```bash
+# 1. Find Claude Code installation
+which claude
+ls -la ~/.local/bin/claude
+ls -la /usr/local/bin/claude
+
+# 2. Update systemd service PATH
+sudo systemctl edit claude-batch-server
+
+# Add this override (replace /path/to/claude with actual path):
+[Service]
+Environment=PATH=/root/.local/bin:/root/.dotnet:/root/.dotnet/bin:/usr/local/bin:/usr/bin:/bin
+
+# 3. Reload and restart
+sudo systemctl daemon-reload
+sudo systemctl restart claude-batch-server
+
+# 4. Verify PATH in service
+sudo systemctl show claude-batch-server --property=Environment
+```
+
+**Quick Fix Script**:
+```bash
+#!/bin/bash
+# Fix Claude Code PATH for systemd service
+
+CLAUDE_PATH=$(which claude 2>/dev/null)
+if [ -z "$CLAUDE_PATH" ]; then
+    echo "❌ Claude Code not found in PATH"
+    echo "Install Claude Code first: curl -fsSL https://claude.ai/install.sh | bash"
+    exit 1
+fi
+
+CLAUDE_DIR=$(dirname "$CLAUDE_PATH")
+echo "✅ Found Claude Code at: $CLAUDE_PATH"
+
+# Create systemd override
+sudo mkdir -p /etc/systemd/system/claude-batch-server.service.d
+sudo tee /etc/systemd/system/claude-batch-server.service.d/claude-path.conf << EOF
+[Service]
+Environment=PATH=$CLAUDE_DIR:/root/.dotnet:/root/.dotnet/bin:/usr/local/bin:/usr/bin:/bin
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart claude-batch-server
+
+echo "✅ Updated systemd service PATH"
+echo "✅ Service restarted"
+```
+
+#### Repository Not CIDX-Aware Error
+
+**Symptoms**: "Repository 'name' is not cidx-aware or was not properly indexed during registration"
+
+**Cause**: Repository CidxAware flag not set correctly during registration
+
+**Solution**:
+```bash
+# 1. Check repository status
+curl -X GET http://localhost:8080/repositories/REPO_NAME \
+  -H "Authorization: Bearer $TOKEN"
+
+# 2. Look for CidxAware field in response
+# If false or missing, re-register repository:
+
+# 3. Delete and re-register repository
+curl -X DELETE http://localhost:8080/repositories/REPO_NAME \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:8080/repositories/register \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "REPO_NAME",
+    "gitUrl": "https://github.com/user/repo.git",
+    "description": "Repository with CIDX indexing"
+  }'
+
+# 4. Wait for indexing to complete
+curl -X GET http://localhost:8080/repositories/REPO_NAME \
+  -H "Authorization: Bearer $TOKEN" | jq '.cloneStatus'
+```
+
+**Check CIDX Indexing Status**:
+```bash
+# Monitor repository registration progress
+watch 'curl -s -X GET http://localhost:8080/repositories/REPO_NAME -H "Authorization: Bearer $TOKEN" | jq "{name: .name, status: .cloneStatus, cidxAware: .cidxAware}"'
+```
 
 #### CoW Not Working
 ```bash

@@ -11,12 +11,14 @@ public class ClaudeCodeExecutorTests
 {
     private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly Mock<ILogger<ClaudeCodeExecutor>> _mockLogger;
+    private readonly Mock<IRepositoryService> _mockRepositoryService;
     private readonly ClaudeCodeExecutor _executor;
 
     public ClaudeCodeExecutorTests()
     {
         _mockConfiguration = new Mock<IConfiguration>();
         _mockLogger = new Mock<ILogger<ClaudeCodeExecutor>>();
+        _mockRepositoryService = new Mock<IRepositoryService>();
         
         // Use /bin/true which ignores all arguments and always succeeds
         _mockConfiguration.Setup(c => c["Claude:Command"]).Returns("/bin/true");
@@ -24,7 +26,7 @@ public class ClaudeCodeExecutorTests
         // Configure to use direct execution for backward compatibility with tests
         _mockConfiguration.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
-        _executor = new ClaudeCodeExecutor(_mockConfiguration.Object, _mockLogger.Object);
+        _executor = new ClaudeCodeExecutor(_mockConfiguration.Object, _mockLogger.Object, _mockRepositoryService.Object);
     }
 
     [Fact]
@@ -61,7 +63,7 @@ public class ClaudeCodeExecutorTests
         mockConfig.Setup(c => c["Claude:Command"]).Returns("bash -c 'sleep 30'");
         mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
-        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
+        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object, _mockRepositoryService.Object);
         
         var job = new Job
         {
@@ -102,7 +104,7 @@ public class ClaudeCodeExecutorTests
         mockConfig.Setup(c => c["Claude:Command"]).Returns("nonexistentcommand12345");
         mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
-        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
+        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object, _mockRepositoryService.Object);
         
         var job = new Job
         {
@@ -212,7 +214,7 @@ public class ClaudeCodeExecutorTests
         mockConfig.Setup(c => c["Claude:Command"]).Returns((string?)null);
         mockConfig.Setup(c => c["Claude:UseFireAndForget"]).Returns("false");
         
-        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object);
+        var executor = new ClaudeCodeExecutor(mockConfig.Object, _mockLogger.Object, _mockRepositoryService.Object);
         
         executor.Should().NotBeNull();
     }

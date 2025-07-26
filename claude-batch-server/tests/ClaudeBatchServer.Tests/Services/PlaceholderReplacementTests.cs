@@ -22,7 +22,8 @@ public class PlaceholderReplacementTests
         // Setup basic configuration
         _mockConfiguration.Setup(c => c["Claude:Command"]).Returns("claude --dangerously-skip-permissions --print");
         
-        _executor = new ClaudeCodeExecutor(_mockConfiguration.Object, _mockLogger.Object);
+        var mockRepositoryService = new Mock<IRepositoryService>();
+        _executor = new ClaudeCodeExecutor(_mockConfiguration.Object, _mockLogger.Object, mockRepositoryService.Object);
     }
 
     [Fact]

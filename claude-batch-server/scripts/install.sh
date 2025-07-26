@@ -1794,6 +1794,29 @@ create_systemd_service() {
     
     log "Using DOTNET_ROOT: $dotnet_root"
     
+    # Find Claude Code installation path for systemd service
+    local claude_path=""
+    local current_user=$(whoami)
+    
+    # Check multiple possible Claude Code installation locations
+    for path in "/home/$current_user/.local/bin/claude" "/usr/local/bin/claude" "/opt/claude/bin/claude" "$(which claude 2>/dev/null)"; do
+        if [[ -x "$path" ]]; then
+            claude_path="$path"
+            break
+        fi
+    done
+    
+    # Build PATH with Claude Code directory if found
+    local service_path="$dotnet_root:$dotnet_root/bin:/usr/local/bin:/usr/bin:/bin"
+    if [[ -n "$claude_path" ]]; then
+        local claude_dir=$(dirname "$claude_path")
+        service_path="$claude_dir:$service_path"
+        log "Found Claude Code at: $claude_path - adding $claude_dir to service PATH"
+    else
+        warn "Claude Code not found in common locations - service may fail to find 'claude' command"
+        warn "Expected locations: ~/.local/bin/claude, /usr/local/bin/claude, /opt/claude/bin/claude"
+    fi
+    
     local service_file="/etc/systemd/system/claude-batch-server.service"
     local service_changed=true
     local service_hash=""
@@ -1807,8 +1830,7 @@ create_systemd_service() {
     # Backup existing service file if it exists
     [[ -f "$service_file" ]] && backup_config "$service_file"
     
-    # Get current user and group for the service
-    local current_user=$(whoami)
+    # Get current group for the service (user already retrieved above)
     local current_group=$(id -gn)
     
     sudo tee "$service_file" > /dev/null << EOF
@@ -1828,7 +1850,7 @@ RestartSec=10
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
 Environment=DOTNET_ROOT=$dotnet_root
-Environment=PATH=$dotnet_root:$dotnet_root/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$service_path
 
 # Security settings
 NoNewPrivileges=true

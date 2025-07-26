@@ -13,12 +13,14 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<ClaudeCodeExecutor> _logger;
+    private readonly IRepositoryService _repositoryService;
     private readonly string _claudeCommand;
 
-    public ClaudeCodeExecutor(IConfiguration configuration, ILogger<ClaudeCodeExecutor> logger)
+    public ClaudeCodeExecutor(IConfiguration configuration, ILogger<ClaudeCodeExecutor> logger, IRepositoryService repositoryService)
     {
         _configuration = configuration;
         _logger = logger;
+        _repositoryService = repositoryService;
         _claudeCommand = _configuration["Claude:Command"] ?? "claude --dangerously-skip-permissions --print";
     }
 
@@ -473,29 +475,21 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
     {
         try
         {
-            // Check if repository has completed status and is cidx-aware
-            // Repository settings file should exist in the repository directory
-            var repositoriesPath = Path.Combine(Directory.GetCurrentDirectory(), "workspace", "repos");
-            var repositoryPath = Path.Combine(repositoriesPath, repositoryName);
-            var settingsFile = Path.Combine(repositoryPath, ".claude-batch-settings.json");
+            // Use the repository service to get repository information instead of reading external settings file
+            var repository = await _repositoryService.GetRepositoryAsync(repositoryName);
             
-            if (!File.Exists(settingsFile))
+            if (repository == null)
             {
-                _logger.LogWarning("Repository settings file not found for {Repository}: {Path}", repositoryName, settingsFile);
+                _logger.LogWarning("Repository {Repository} not found in repository service", repositoryName);
                 return false;
             }
 
-            var settingsJson = await File.ReadAllTextAsync(settingsFile);
-            var settings = System.Text.Json.JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
-            
-            if (settings == null) return false;
-
             // Check if repository is cidx-aware and completed
-            bool isCidxAware = settings.ContainsKey("CidxAware") && (settings["CidxAware"]?.ToString() ?? "").Equals("true", StringComparison.OrdinalIgnoreCase);
-            bool isCompleted = settings.ContainsKey("CloneStatus") && (settings["CloneStatus"]?.ToString() ?? "").Equals("completed", StringComparison.OrdinalIgnoreCase);
+            bool isCidxAware = repository.CidxAware;
+            bool isCompleted = string.Equals(repository.CloneStatus, "completed", StringComparison.OrdinalIgnoreCase);
             
             _logger.LogInformation("Repository {Repository} cidx status - CidxAware: {CidxAware}, CloneStatus: {CloneStatus}", 
-                repositoryName, isCidxAware, settings.GetValueOrDefault("CloneStatus", "unknown"));
+                repositoryName, isCidxAware, repository.CloneStatus ?? "unknown");
             
             return isCidxAware && isCompleted;
         }
