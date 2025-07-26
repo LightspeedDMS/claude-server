@@ -89,8 +89,16 @@ public class CowRepositoryService : IRepositoryService
                         // Read CloneStatus and CidxAware from settings file like GetRepositoriesWithMetadataAsync does
                         if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
                             repository.CloneStatus = cloneStatus.ToString() ?? string.Empty;
-                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null && bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
-                            repository.CidxAware = cidxAwareBool;
+                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null)
+                        {
+                            // Handle JsonElement boolean values from deserialized JSON
+                            if (cidxAware is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.True)
+                                repository.CidxAware = true;
+                            else if (cidxAware is System.Text.Json.JsonElement jsonElement2 && jsonElement2.ValueKind == System.Text.Json.JsonValueKind.False)
+                                repository.CidxAware = false;
+                            else if (bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
+                                repository.CidxAware = cidxAwareBool;
+                        }
                         if (settings.TryGetValue("GitUrl", out var gitUrl) && gitUrl != null)
                             repository.GitUrl = gitUrl.ToString() ?? string.Empty;
                         if (settings.TryGetValue("RegisteredAt", out var regAt) && regAt != null && DateTime.TryParse(regAt.ToString(), out var registeredAt))
@@ -171,8 +179,16 @@ public class CowRepositoryService : IRepositoryService
                             repository.RegisteredAt = registeredAt;
                         if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
                             repository.CloneStatus = cloneStatus.ToString() ?? string.Empty;
-                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null && bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
-                            repository.CidxAware = cidxAwareBool;
+                        if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null)
+                        {
+                            // Handle JsonElement boolean values from deserialized JSON
+                            if (cidxAware is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.True)
+                                repository.CidxAware = true;
+                            else if (cidxAware is System.Text.Json.JsonElement jsonElement2 && jsonElement2.ValueKind == System.Text.Json.JsonValueKind.False)
+                                repository.CidxAware = false;
+                            else if (bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
+                                repository.CidxAware = cidxAwareBool;
+                        }
                     }
                 }
                 catch (Exception ex)
