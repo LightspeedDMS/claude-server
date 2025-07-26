@@ -1315,7 +1315,7 @@ install_claude_server_cli() {
     
     # Publish self-contained executable
     local runtime=""
-    case "$DISTRO" in
+    case "$OS_ID" in
         "rocky"|"centos"|"rhel")
             runtime="linux-x64"
             ;;
