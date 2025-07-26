@@ -1313,8 +1313,11 @@ build_and_deploy() {
     # Create workspace directories (idempotent)
     sudo mkdir -p /workspace/repos /workspace/jobs /var/log/claude-batch-server
     
-    # Set proper permissions (idempotent)
-    sudo chown -R root:root /workspace
+    # Set proper permissions for current user (idempotent)
+    local current_user=$(whoami)
+    local current_group=$(id -gn)
+    sudo chown -R "$current_user:$current_group" /workspace
+    sudo chown -R "$current_user:$current_group" /var/log/claude-batch-server
     sudo chmod 755 /workspace /workspace/repos /workspace/jobs
     sudo chmod 755 /var/log/claude-batch-server
     
@@ -1591,6 +1594,10 @@ create_systemd_service() {
     # Backup existing service file if it exists
     [[ -f "$service_file" ]] && backup_config "$service_file"
     
+    # Get current user and group for the service
+    local current_user=$(whoami)
+    local current_group=$(id -gn)
+    
     sudo tee "$service_file" > /dev/null << EOF
 [Unit]
 Description=Claude Batch Server
@@ -1599,8 +1606,8 @@ Wants=network.target
 
 [Service]
 Type=exec
-User=root
-Group=root
+User=$current_user
+Group=$current_group
 WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0
 ExecStart=$dotnet_path ClaudeBatchServer.Api.dll
 Restart=always
@@ -1613,9 +1620,6 @@ Environment=PATH=$dotnet_root:$dotnet_root/bin:/usr/local/bin:/usr/bin:/bin
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/workspace /var/log/claude-batch-server
-ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
