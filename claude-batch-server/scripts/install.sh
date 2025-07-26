@@ -1061,14 +1061,27 @@ install_docker() {
 install_claude_cli() {
     log "Installing Claude Code CLI..."
     
+    # Check if Claude CLI is already installed and accessible
+    local claude_was_already_installed=false
+    if command -v claude >/dev/null 2>&1; then
+        log "Claude CLI already installed: $(claude --version 2>/dev/null || echo 'version unknown')"
+        claude_was_already_installed=true
+    elif [[ -f "$HOME/.local/bin/claude" ]]; then
+        log "Claude CLI binary exists at $HOME/.local/bin/claude but not in PATH"
+        claude_was_already_installed=true
+    fi
+    
     # Install using official installer as regular user
     curl -fsSL https://claude.ai/install.sh | bash
     
     # Ensure .local/bin is in PATH for the current user
     if [[ -f "$HOME/.local/bin/claude" ]]; then
+        local path_setup_needed=false
+        
         # Add to current user's PATH if not already there
         if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
             export PATH="$HOME/.local/bin:$PATH"
+            path_setup_needed=true
         fi
         
         # Add to .bashrc for permanent PATH setting
@@ -1077,6 +1090,7 @@ install_claude_cli() {
             echo "# Claude CLI PATH (added by install script)" >> "$HOME/.bashrc"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
             log "Added Claude CLI to PATH in ~/.bashrc"
+            path_setup_needed=true
         fi
         
         log "Claude Code CLI installed successfully at $HOME/.local/bin/claude"
@@ -1087,6 +1101,23 @@ install_claude_cli() {
         else
             warn "⚠️  You need to run 'source ~/.bashrc' or restart your shell to use 'claude' command"
             warn "Or you can run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+            path_setup_needed=true
+        fi
+        
+        # Only create the PATH setup script if Claude was NOT already installed 
+        # and PATH setup is needed
+        if [[ "$claude_was_already_installed" == "false" && "$path_setup_needed" == "true" ]]; then
+            cat > /tmp/claude-path-setup.sh << 'EOF'
+#!/bin/bash
+# Claude CLI PATH setup - Source this file to make claude available immediately
+export PATH="$HOME/.local/bin:$PATH"
+echo "✅ Claude CLI is now available in your current session"
+echo "Run 'claude --version' to test"
+EOF
+            chmod +x /tmp/claude-path-setup.sh
+            
+            log "💡 To use 'claude' immediately after this script finishes:"
+            log "   Run: ${BLUE}source /tmp/claude-path-setup.sh${NC}"
         fi
     else
         warn "Claude Code CLI installation may have failed, but continuing..."
@@ -1846,8 +1877,7 @@ ${BLUE}Troubleshooting:${NC}
 • Check port usage: ${BLUE}sudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'${NC}
 
 ${GREEN}🎯 Quick Start Summary:${NC}
-${YELLOW}If 'claude' command is not found, run:${NC} ${BLUE}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}
-${YELLOW}Or restart your shell/run:${NC} ${BLUE}source ~/.bashrc${NC}
+$([ -f "/tmp/claude-path-setup.sh" ] && echo "${YELLOW}If 'claude' command is not found, first run:${NC} ${BLUE}source /tmp/claude-path-setup.sh${NC}")
 
 1. Run ${BLUE}claude /login${NC} and ${BLUE}claude --dangerously-skip-permissions${NC}
 2. Start service: ${BLUE}sudo systemctl start claude-batch-server${NC}
