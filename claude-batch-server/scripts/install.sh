@@ -1098,6 +1098,8 @@ install_claude_cli() {
         # Test if claude is now accessible
         if command -v claude >/dev/null 2>&1; then
             log "✅ 'claude' command is now available (no restart needed)"
+            # Claude is available, no PATH setup script needed
+            path_setup_needed=false
         else
             warn "⚠️  You need to run 'source ~/.bashrc' or restart your shell to use 'claude' command"
             warn "Or you can run: export PATH=\"\$HOME/.local/bin:\$PATH\""
@@ -1131,7 +1133,7 @@ install_pipx() {
     case "$OS_ID" in
         "rocky"|"rhel"|"centos")
             # Install Python 3 and pip
-            dnf install -y python3 python3-pip python3-venv
+            sudo dnf install -y python3 python3-pip python3-venv
             
             # Install pipx using pip
             python3 -m pip install --user pipx
@@ -1139,8 +1141,8 @@ install_pipx() {
             ;;
         "ubuntu")
             # Install Python 3 and pipx
-            apt-get update
-            apt-get install -y python3 python3-pip python3-venv pipx
+            sudo apt-get update
+            sudo apt-get install -y python3 python3-pip python3-venv pipx
             
             # Ensure pipx is in PATH
             pipx ensurepath
@@ -1215,10 +1217,10 @@ configure_cow() {
             # Install btrfs-progs if not already installed
             case "$OS_ID" in
                 "rocky"|"rhel"|"centos")
-                    dnf install -y btrfs-progs
+                    sudo dnf install -y btrfs-progs
                     ;;
                 "ubuntu")
-                    apt-get install -y btrfs-progs
+                    sudo apt-get install -y btrfs-progs
                     ;;
             esac
             ;;
