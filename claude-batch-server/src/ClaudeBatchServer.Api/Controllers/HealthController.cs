@@ -14,7 +14,7 @@ public class HealthController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<object>> GetHealth()
+    public ActionResult<object> GetHealth()
     {
         try
         {

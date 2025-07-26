@@ -7,7 +7,7 @@ import { expect } from '@playwright/test'
 /**
  * Helper function for user login in E2E tests
  */
-export async function loginAsUser(page, username = 'testuser', password = 'testpass') {
+export async function loginAsUser(page, username = 'jsbattig', password = 'test123') {
   await page.goto('/')
   await page.fill('[data-testid="username"]', username)
   await page.fill('[data-testid="password"]', password)
@@ -96,7 +96,7 @@ export const mockApiResponses = {
   login: {
     success: {
       token: 'mock-jwt-token',
-      user: { username: 'testuser' }
+      user: { username: 'jsbattig' }
     },
     failure: {
       error: 'Invalid credentials'
@@ -136,7 +136,7 @@ export const mockApiResponses = {
       jobId: 'new-job-id',
       status: 'created',
       title: 'New Test Job',
-      user: 'testuser',
+      user: 'jsbattig',
       cowPath: '/tmp/cow-workspace'
     }
   },
@@ -193,8 +193,8 @@ export const assertions = {
  */
 export const generators = {
   user: (overrides = {}) => ({
-    username: 'testuser',
-    password: 'testpass',
+    username: 'jsbattig',
+    password: 'test123',
     ...overrides
   }),
   

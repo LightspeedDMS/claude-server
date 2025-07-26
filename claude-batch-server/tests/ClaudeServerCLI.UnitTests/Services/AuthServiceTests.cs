@@ -79,7 +79,7 @@ public class AuthServiceTests
 
         _mockApiClient
             .Setup(x => x.LoginAsync(It.IsAny<LoginRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((LoginResponse?)null);
+            .ThrowsAsync(new HttpRequestException("Unauthorized"));
 
         // Act
         var result = await _authService.LoginAsync(username, password, false, profile);

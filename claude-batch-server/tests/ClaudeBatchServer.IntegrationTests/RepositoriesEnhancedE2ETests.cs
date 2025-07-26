@@ -99,7 +99,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         repositories.Should().HaveCount(3);
 
         // Verify test-git-repo (registered Git repository)
-        var gitRepo = repositories.FirstOrDefault(r => r.Name == "test-git-repo");
+        var gitRepo = repositories!.FirstOrDefault(r => r.Name == "test-git-repo");
         gitRepo.Should().NotBeNull();
         gitRepo!.Type.Should().Be("git");
         gitRepo.GitUrl.Should().Be("https://github.com/test/repo.git");
@@ -110,7 +110,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         gitRepo.LastModified.Should().BeCloseTo(DateTime.Now, TimeSpan.FromMinutes(5));
 
         // Verify unmanaged-git (unregistered Git repository)
-        var unmanagedGit = repositories.FirstOrDefault(r => r.Name == "unmanaged-git");
+        var unmanagedGit = repositories!.FirstOrDefault(r => r.Name == "unmanaged-git");
         unmanagedGit.Should().NotBeNull();
         unmanagedGit!.Type.Should().Be("git");
         unmanagedGit.GitUrl.Should().BeNull(); // No settings file
@@ -120,7 +120,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         unmanagedGit.Size.Should().BeGreaterThan(0);
 
         // Verify regular-folder (non-Git folder)
-        var regularFolder = repositories.FirstOrDefault(r => r.Name == "regular-folder");
+        var regularFolder = repositories!.FirstOrDefault(r => r.Name == "regular-folder");
         regularFolder.Should().NotBeNull();
         regularFolder!.Type.Should().Be("folder");
         regularFolder.GitUrl.Should().BeNull();
@@ -149,7 +149,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         repositories.Should().NotBeNull();
         
-        var gitRepo = repositories.FirstOrDefault(r => r.Name == "git-with-commits");
+        var gitRepo = repositories!.FirstOrDefault(r => r.Name == "git-with-commits");
         gitRepo.Should().NotBeNull();
         gitRepo!.Type.Should().Be("git");
         gitRepo.CurrentBranch.Should().Be("main");
@@ -179,7 +179,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         repositories.Should().NotBeNull();
         
-        var gitRepo = repositories.FirstOrDefault(r => r.Name == "git-uncommitted");
+        var gitRepo = repositories!.FirstOrDefault(r => r.Name == "git-uncommitted");
         gitRepo.Should().NotBeNull();
         gitRepo!.Type.Should().Be("git");
         gitRepo.HasUncommittedChanges.Should().BeTrue();
@@ -204,7 +204,7 @@ public class RepositoriesEnhancedE2ETests : IClassFixture<WebApplicationFactory<
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         repositories.Should().NotBeNull();
         
-        var folder = repositories.FirstOrDefault(r => r.Name == "known-size-folder");
+        var folder = repositories!.FirstOrDefault(r => r.Name == "known-size-folder");
         folder.Should().NotBeNull();
         folder!.Type.Should().Be("folder");
         folder.Size.Should().Be(50); // 3 files with 10 + 15 + 25 = 50 bytes

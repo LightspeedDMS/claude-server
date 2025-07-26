@@ -147,20 +147,20 @@ export class JobCreatePage extends BasePage {
   constructor(page) {
     super(page)
     this.selectors = {
-      form: '[data-testid="job-creation-form"]',
+      form: '#create-job-form',
       repositorySelect: '[data-testid="repository-select"]',
       promptInput: '[data-testid="prompt-input"]',
       fileUpload: '[data-testid="file-upload"]',
-      uploadArea: '[data-testid="upload-area"]',
+      uploadArea: '[data-testid="file-upload-area"]',
       uploadedFiles: '[data-testid="uploaded-files"]',
       fileItem: '[data-testid="file-item"]',
       removeFileButton: '[data-testid="remove-file"]',
       advancedOptions: '[data-testid="advanced-options"]',
-      timeoutInput: '[data-testid="timeout-input"]',
+      timeoutInput: '[data-testid="timeout"]',
       gitAwareCheckbox: '[data-testid="git-aware"]',
       cidxAwareCheckbox: '[data-testid="cidx-aware"]',
       submitButton: '[data-testid="submit-job"]',
-      cancelButton: '[data-testid="cancel-job"]',
+      cancelButton: '#cancel-job-creation',
       errorMessage: '[data-testid="error-message"]',
       loadingState: '[data-testid="loading-state"]'
     }
@@ -436,12 +436,12 @@ export class RepositoryPage extends BasePage {
       refreshButton: '[data-testid="refresh-repos"]',
       
       // Registration form
-      registerForm: '[data-testid="register-form"]',
-      nameInput: '[data-testid="repo-name-input"]',
-      urlInput: '[data-testid="repo-url-input"]',
-      descriptionInput: '[data-testid="repo-description-input"]',
-      submitRegister: '[data-testid="submit-register"]',
-      cancelRegister: '[data-testid="cancel-register"]'
+      registerForm: '#repo-register-form',
+      nameInput: '#repo-name',
+      urlInput: '#repo-url',
+      descriptionInput: '#repo-description',
+      submitRegister: '#repo-submit',
+      cancelRegister: '#repo-cancel'
     }
   }
 

@@ -339,7 +339,7 @@ public class UserManagementServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPasswdFilePath_ReturnsCorrectPath()
+    public void GetPasswdFilePath_ReturnsCorrectPath()
     {
         // Act
         var path = _service.GetPasswdFilePath();
@@ -350,7 +350,7 @@ public class UserManagementServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetShadowFilePath_ReturnsCorrectPath()
+    public void GetShadowFilePath_ReturnsCorrectPath()
     {
         // Act
         var path = _service.GetShadowFilePath();

@@ -131,7 +131,7 @@ public class SecurityUtilsTests
         
         // Test empty/null input
         SecurityUtils.SanitizeForShell("").Should().Be("");
-        SecurityUtils.SanitizeForShell(null).Should().Be("");
+        SecurityUtils.SanitizeForShell(null!).Should().Be("");
     }
 
     [Fact]

@@ -182,7 +182,7 @@ public class SecurityE2ETests : IClassFixture<WebApplicationFactory<Program>>
         var responseContent = await response.Content.ReadAsStringAsync();
         var uploadResponse = JsonSerializer.Deserialize<FileUploadResponse>(responseContent, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         uploadResponse.Should().NotBeNull();
-        uploadResponse.FileType.Should().Be(".txt");
+        uploadResponse!.FileType.Should().Be(".txt");
         uploadResponse.FileSize.Should().BeGreaterThan(0);
     }
 
@@ -204,7 +204,7 @@ public class SecurityE2ETests : IClassFixture<WebApplicationFactory<Program>>
         var responseContent = await response.Content.ReadAsStringAsync();
         var cancelResponse = JsonSerializer.Deserialize<CancelJobResponse>(responseContent, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         cancelResponse.Should().NotBeNull();
-        cancelResponse.Success.Should().BeTrue();
+        cancelResponse!.Success.Should().BeTrue();
         cancelResponse.Status.Should().Be("cancelling");
         cancelResponse.CancelledAt.Should().NotBeNull();
     }
@@ -273,11 +273,11 @@ public class SecurityE2ETests : IClassFixture<WebApplicationFactory<Program>>
         return await Task.FromResult("test-valid-token-for-integration-tests");
     }
 
-    private async Task<string> GetExpiredJwtTokenAsync()
+    private Task<string> GetExpiredJwtTokenAsync()
     {
         // This would need to be implemented to create a token with past expiry
         // For now, return a malformed token that will fail validation
-        return "expired.token.here";
+        return Task.FromResult("expired.token.here");
     }
 
     private async Task<Guid> CreateTestJobAsync(string token)

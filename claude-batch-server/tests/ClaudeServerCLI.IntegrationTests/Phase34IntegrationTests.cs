@@ -220,22 +220,22 @@ public class Phase34EndToEndTests : IDisposable
         Assert.NotNull(jobsCommand);
         
         // Verify subcommands exist
-        Assert.True(authCommand.Subcommands.Any(c => c.Name == "login"));
-        Assert.True(authCommand.Subcommands.Any(c => c.Name == "logout"));
-        Assert.True(authCommand.Subcommands.Any(c => c.Name == "whoami"));
+        Assert.Contains(authCommand.Subcommands, c => c.Name == "login");
+        Assert.Contains(authCommand.Subcommands, c => c.Name == "logout");
+        Assert.Contains(authCommand.Subcommands, c => c.Name == "whoami");
         
-        Assert.True(reposCommand.Subcommands.Any(c => c.Name == "list"));
-        Assert.True(reposCommand.Subcommands.Any(c => c.Name == "create"));
-        Assert.True(reposCommand.Subcommands.Any(c => c.Name == "show"));
-        Assert.True(reposCommand.Subcommands.Any(c => c.Name == "delete"));
+        Assert.Contains(reposCommand.Subcommands, c => c.Name == "list");
+        Assert.Contains(reposCommand.Subcommands, c => c.Name == "create");
+        Assert.Contains(reposCommand.Subcommands, c => c.Name == "show");
+        Assert.Contains(reposCommand.Subcommands, c => c.Name == "delete");
         
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "list"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "create"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "show"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "start"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "cancel"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "delete"));
-        Assert.True(jobsCommand.Subcommands.Any(c => c.Name == "logs"));
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "list");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "create");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "show");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "start");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "cancel");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "delete");
+        Assert.Contains(jobsCommand.Subcommands, c => c.Name == "logs");
     }
     
     public void Dispose()

@@ -186,13 +186,13 @@ public static class InteractiveUI
     /// <summary>
     /// Shows a repository selection dialog
     /// </summary>
-    public static async Task<string?> SelectRepositoryAsync(IEnumerable<string> repositories, string title = "Select Repository")
+    public static Task<string?> SelectRepositoryAsync(IEnumerable<string> repositories, string title = "Select Repository")
     {
         var repoList = repositories.ToList();
         if (!repoList.Any())
         {
             AnsiConsole.MarkupLine("[red]No repositories available[/]");
-            return null;
+            return Task.FromResult<string?>(null);
         }
 
         if (repoList.Count == 1)
@@ -200,9 +200,9 @@ public static class InteractiveUI
             var singleRepo = repoList.First();
             if (AnsiConsole.Confirm($"Use repository '{singleRepo}'?"))
             {
-                return singleRepo;
+                return Task.FromResult<string?>(singleRepo);
             }
-            return null;
+            return Task.FromResult<string?>(null);
         }
 
         var selection = AnsiConsole.Prompt(
@@ -212,7 +212,7 @@ public static class InteractiveUI
                 .MoreChoicesText("[grey](Move up and down to reveal more repositories)[/]")
                 .AddChoices(repoList));
 
-        return selection;
+        return Task.FromResult<string?>(selection);
     }
 
     /// <summary>

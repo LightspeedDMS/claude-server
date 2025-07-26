@@ -234,7 +234,7 @@ public class EndToEndTests : IClassFixture<WebApplicationFactory<Program>>, IDis
     }
 
     [Fact]
-    public async Task CopyOnWrite_ValidateSupport_ShouldBeDetected()
+    public void CopyOnWrite_ValidateSupport_ShouldBeDetected()
     {
         var testPath = Path.Combine(_testJobsPath, "cow-test");
         Directory.CreateDirectory(testPath);

@@ -9,7 +9,7 @@
     <RootNamespace>ClaudeServerCLI</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>ClaudeServerCLI</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
+    <PackageVersion>1.0.0-alpha</PackageVersion>
     <PackageDescription>CLI for Claude Batch Server API</PackageDescription>
     <Authors>Claude Server Team</Authors>
     <Company>Claude Server</Company>
