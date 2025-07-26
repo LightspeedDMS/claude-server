@@ -1664,8 +1664,13 @@ server {
     add_header X-XSS-Protection "1; mode=block";
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
     
-    # Proxy to the application
-    location / {
+    # Serve static files from web UI build directory
+    root $PROJECT_DIR/claude-web-ui/dist;
+    index index.html;
+    
+    # API endpoints - proxy to backend with URL rewriting
+    location /api/ {
+        rewrite ^/api(.*)$ \$1 break;
         proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -1682,17 +1687,27 @@ server {
         proxy_read_timeout 60s;
     }
     
-    # Health check endpoint
+    # Direct health check endpoint (no rewrite needed)
     location /health {
         proxy_pass http://127.0.0.1:5000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         access_log off;
     }
     
-    # Static files caching
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-        proxy_pass http://127.0.0.1:5000;
+    # Static assets with caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        try_files \$uri =404;
+    }
+    
+    # SPA fallback - serve index.html for all other routes
+    location / {
+        try_files \$uri \$uri/ /index.html;
     }
 }
 EOF
