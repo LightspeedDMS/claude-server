@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ClaudeBatchServer.Core.Models;
+using ClaudeBatchServer.Core.Serialization;
 
 namespace ClaudeBatchServer.Core.Services;
 
@@ -503,7 +504,7 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             }
 
             var settingsJson = await File.ReadAllTextAsync(settingsFile);
-            var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+            var settings = System.Text.Json.JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
             
             if (settings == null) return false;
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ClaudeBatchServer.Core.Models;
+using ClaudeBatchServer.Core.Serialization;
 
 namespace ClaudeBatchServer.Core.Services;
 
@@ -55,7 +56,7 @@ public class JobPersistenceService : IJobPersistenceService
         try
         {
             var filePath = GetJobFilePath(job.Id);
-            var jsonContent = JsonSerializer.Serialize(job, _jsonOptions);
+            var jsonContent = JsonSerializer.Serialize(job, AppJsonSerializerContext.Default.Job);
             
             await File.WriteAllTextAsync(filePath, jsonContent);
             
@@ -80,7 +81,7 @@ public class JobPersistenceService : IJobPersistenceService
             }
 
             var jsonContent = await File.ReadAllTextAsync(filePath);
-            var job = JsonSerializer.Deserialize<Job>(jsonContent, _jsonOptions);
+            var job = JsonSerializer.Deserialize(jsonContent, AppJsonSerializerContext.Default.Job);
             
             _logger.LogDebug("Job {JobId} loaded from {FilePath}", jobId, filePath);
             return job;
@@ -110,7 +111,7 @@ public class JobPersistenceService : IJobPersistenceService
                 try
                 {
                     var jsonContent = await File.ReadAllTextAsync(filePath);
-                    var job = JsonSerializer.Deserialize<Job>(jsonContent, _jsonOptions);
+                    var job = JsonSerializer.Deserialize(jsonContent, AppJsonSerializerContext.Default.Job);
                     
                     if (job != null)
                     {

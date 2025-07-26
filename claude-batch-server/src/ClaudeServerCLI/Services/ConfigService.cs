@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ClaudeServerCLI.Models;
+using ClaudeServerCLI.Serialization;
 
 namespace ClaudeServerCLI.Services;
 
@@ -47,7 +48,7 @@ public class ConfigService : IConfigService
             }
 
             var json = await File.ReadAllTextAsync(configPath, cancellationToken);
-            var config = JsonSerializer.Deserialize<CliConfiguration>(json, _jsonOptions);
+            var config = JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.CliConfiguration);
             
             if (config == null)
             {
@@ -90,7 +91,7 @@ public class ConfigService : IConfigService
         {
             await EnsureConfigDirectoryAsync(configPath);
             
-            var json = JsonSerializer.Serialize(config, _jsonOptions);
+            var json = JsonSerializer.Serialize(config, CliJsonSerializerContext.Default.CliConfiguration);
             await File.WriteAllTextAsync(configPath, json, cancellationToken);
             
             // Set restrictive file permissions (600 - owner read/write only)

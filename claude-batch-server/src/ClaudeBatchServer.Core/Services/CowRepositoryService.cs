@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ClaudeBatchServer.Core.Models;
 using ClaudeBatchServer.Core.DTOs;
+using ClaudeBatchServer.Core.Serialization;
 
 namespace ClaudeBatchServer.Core.Services;
 
@@ -89,7 +90,7 @@ public class CowRepositoryService : IRepositoryService
                 try
                 {
                     var settingsJson = await File.ReadAllTextAsync(settingsToUse);
-                    var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                    var settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
                     
                     if (settings != null)
                     {
@@ -108,7 +109,7 @@ public class CowRepositoryService : IRepositoryService
                         // Also try to deserialize the RepositorySettings object for other settings
                         try
                         {
-                            var repoSettings = JsonSerializer.Deserialize<RepositorySettings>(settingsJson);
+                            var repoSettings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.RepositorySettings);
                             if (repoSettings != null) repository.Settings = repoSettings;
                         }
                         catch
@@ -171,7 +172,7 @@ public class CowRepositoryService : IRepositoryService
                 try
                 {
                     var settingsJson = await File.ReadAllTextAsync(settingsToUse);
-                    var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                    var settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
                     
                     if (settings != null)
                     {
@@ -282,10 +283,7 @@ public class CowRepositoryService : IRepositoryService
             CidxAware = cidxAware
         };
         
-        await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
-        { 
-            WriteIndented = true 
-        }));
+        await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
 
         // Start background processing (fire-and-forget)
         _ = Task.Run(async () => await ProcessRepositoryAsync(repository, cidxAware));
@@ -353,10 +351,7 @@ public class CowRepositoryService : IRepositoryService
                     CidxAware = cidxAware
                 };
                 
-                await File.WriteAllTextAsync(repoSettingsPath, JsonSerializer.Serialize(finalSettings, new JsonSerializerOptions 
-                { 
-                    WriteIndented = true 
-                }));
+                await File.WriteAllTextAsync(repoSettingsPath, JsonSerializer.Serialize(finalSettings, AppJsonSerializerContext.Default.DictionaryStringObject));
             }
             else
             {
@@ -420,10 +415,7 @@ public class CowRepositoryService : IRepositoryService
                 if (settings != null)
                 {
                     settings["CloneStatus"] = status;
-                    await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions 
-                    { 
-                        WriteIndented = true 
-                    }));
+                    await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
                 }
             }
         }

@@ -39,9 +39,8 @@ public class UserManagementService : IUserManagementService
         }
         else
         {
-            // Fallback: Determine server directory from assembly location
-            var assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            var assemblyDir = Path.GetDirectoryName(assemblyPath) ?? throw new InvalidOperationException("Cannot determine assembly directory");
+            // Fallback: Determine server directory from app base directory (works with single-file apps)
+            var assemblyDir = AppContext.BaseDirectory ?? throw new InvalidOperationException("Cannot determine application directory");
             
             // Navigate up to find the project root (where the auth files should be)
             var currentDir = new DirectoryInfo(assemblyDir);
