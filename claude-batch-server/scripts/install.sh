@@ -999,6 +999,48 @@ generate_ssl_cert() {
     fi
 }
 
+# Install Node.js and npm
+install_nodejs() {
+    log "Installing Node.js and npm..."
+    
+    # Check if Node.js is already installed
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        local node_version=$(node --version)
+        local npm_version=$(npm --version)
+        log "Node.js already installed: $node_version, npm: $npm_version"
+        return 0
+    fi
+    
+    case "$OS_ID" in
+        "rocky"|"rhel"|"centos")
+            # Install Node.js 18.x from NodeSource repository
+            if [[ ! -f /etc/yum.repos.d/nodesource-el8.repo ]] && [[ ! -f /etc/yum.repos.d/nodesource-el9.repo ]]; then
+                curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+                log "Added NodeSource repository"
+            fi
+            sudo dnf install -y nodejs npm
+            ;;
+        "ubuntu")
+            # Install Node.js 18.x from NodeSource repository
+            if [[ ! -f /etc/apt/sources.list.d/nodesource.list ]]; then
+                curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+                log "Added NodeSource repository"
+            fi
+            sudo apt-get install -y nodejs
+            ;;
+        *)
+            error "Unsupported OS for Node.js installation: $OS_ID"
+            exit 1
+            ;;
+    esac
+    
+    # Verify installation
+    verify_command "node"
+    verify_command "npm"
+    
+    log "Node.js and npm installed successfully"
+}
+
 # Install Docker and Docker Compose
 install_docker() {
     log "Installing Docker and Docker Compose..."
@@ -1307,6 +1349,9 @@ build_and_deploy() {
     
     log "API build verified - DLL and runtime config found in build output directory"
     
+    # Build web UI
+    build_web_ui
+    
     # Create systemd service
     create_systemd_service
     
@@ -1322,6 +1367,64 @@ build_and_deploy() {
     sudo chmod 755 /var/log/claude-batch-server
     
     log "Application built and deployed successfully"
+}
+
+# Build web UI
+build_web_ui() {
+    log "Building Claude Web UI..."
+    
+    # Check if web UI directory exists
+    local web_ui_dir="$PROJECT_DIR/../claude-web-ui"
+    if [[ ! -d "$web_ui_dir" ]]; then
+        error "Web UI directory not found: $web_ui_dir"
+        error "Please ensure the claude-web-ui project is in the same parent directory as claude-batch-server"
+        exit 1
+    fi
+    
+    cd "$web_ui_dir"
+    
+    # Install npm dependencies
+    log "Installing web UI dependencies..."
+    npm install
+    
+    # Build the web UI
+    log "Building web UI with Vite..."
+    npm run build
+    
+    # Verify build output exists
+    if [[ ! -d "dist" ]] || [[ ! -f "dist/index.html" ]]; then
+        error "Web UI build failed - dist directory or index.html not found"
+        exit 1
+    fi
+    
+    # Copy built web UI to API wwwroot directory
+    local wwwroot_dir="$PROJECT_DIR/src/ClaudeBatchServer.Api/wwwroot"
+    log "Deploying web UI to API wwwroot directory: $wwwroot_dir"
+    
+    # Create wwwroot directory if it doesn't exist
+    mkdir -p "$wwwroot_dir"
+    
+    # Remove existing web UI files (but keep any API-specific files)
+    if [[ -f "$wwwroot_dir/index.html" ]]; then
+        rm -f "$wwwroot_dir/index.html"
+    fi
+    if [[ -d "$wwwroot_dir/assets" ]]; then
+        rm -rf "$wwwroot_dir/assets"
+    fi
+    
+    # Copy new build files
+    cp -r dist/* "$wwwroot_dir/"
+    
+    # Verify deployment
+    if [[ ! -f "$wwwroot_dir/index.html" ]]; then
+        error "Web UI deployment failed - index.html not found in wwwroot"
+        exit 1
+    fi
+    
+    log "Web UI built and deployed successfully"
+    
+    # Return to project directory
+    cd "$PROJECT_DIR"
 }
 
 # Build and install claude-server CLI tool
@@ -2197,6 +2300,7 @@ main() {
     # Install base components
     log "Installing base components..."
     install_prerequisites
+    install_nodejs
     install_dotnet
     install_docker
     install_claude_cli
