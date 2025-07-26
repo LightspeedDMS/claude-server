@@ -45,7 +45,7 @@ public class StagingAreaWorkflowTests : IDisposable
     {
         // Arrange
         var jobId = Guid.NewGuid();
-        var expectedPath = Path.Combine(_testWorkspacePath, "jobs", jobId.ToString(), "staging");
+        var expectedPath = Path.Combine(_testWorkspacePath, "staging", jobId.ToString());
 
         // Act
         var stagingPath = _jobPersistenceService.GetJobStagingPath(jobId);
@@ -105,11 +105,10 @@ public class StagingAreaWorkflowTests : IDisposable
             Directory.CreateDirectory(stagingPath);
             Directory.CreateDirectory(cowPath);
 
-            // Create test files in staging area
-            var testFile1 = Path.Combine(stagingPath, "uploaded1.txt");
-            var testFile2 = Path.Combine(stagingPath, "docs", "uploaded2.md");
+            // Create test files in staging area (flat structure with hash suffixes)
+            var testFile1 = Path.Combine(stagingPath, "uploaded1_12345678.txt");
+            var testFile2 = Path.Combine(stagingPath, "uploaded2_abcdefgh.md");
             
-            Directory.CreateDirectory(Path.GetDirectoryName(testFile2)!);
             File.WriteAllText(testFile1, "Uploaded content 1");
             File.WriteAllText(testFile2, "# Uploaded markdown content");
 
@@ -124,7 +123,7 @@ public class StagingAreaWorkflowTests : IDisposable
             Assert.True(Directory.Exists(cowFilesPath));
             
             var copiedFile1 = Path.Combine(cowFilesPath, "uploaded1.txt");
-            var copiedFile2 = Path.Combine(cowFilesPath, "docs", "uploaded2.md");
+            var copiedFile2 = Path.Combine(cowFilesPath, "uploaded2.md");
             
             Assert.True(File.Exists(copiedFile1));
             Assert.True(File.Exists(copiedFile2));
@@ -218,13 +217,12 @@ public class StagingAreaWorkflowTests : IDisposable
             // STEP 1: Job created (no CoW clone yet - simulating CreateJobAsync)
             var stagingPath = _jobPersistenceService.GetJobStagingPath(jobId);
             
-            // STEP 2: Files uploaded to staging area (simulating UploadFileAsync)
+            // STEP 2: Files uploaded to staging area (simulating UploadFileAsync with hash suffixes)
             Directory.CreateDirectory(stagingPath);
             
-            var uploadedFile1 = Path.Combine(stagingPath, "requirements.txt");
-            var uploadedFile2 = Path.Combine(stagingPath, "src", "helper.py");
+            var uploadedFile1 = Path.Combine(stagingPath, "requirements_12345678.txt");
+            var uploadedFile2 = Path.Combine(stagingPath, "helper_abcdefgh.py");
             
-            Directory.CreateDirectory(Path.GetDirectoryName(uploadedFile2)!);
             File.WriteAllText(uploadedFile1, "pytest>=7.0.0\nrequests>=2.28.0");
             File.WriteAllText(uploadedFile2, "def helper_function():\n    return 'uploaded helper'");
 
@@ -239,12 +237,12 @@ public class StagingAreaWorkflowTests : IDisposable
             var copiedCount = await _jobPersistenceService.CopyStagedFilesToCowWorkspaceAsync(jobId, cowPath);
             Assert.Equal(2, copiedCount);
             
-            // Verify files are now in CoW workspace
+            // Verify files are now in CoW workspace (flattened, with original names restored)
             var cowFilesPath = Path.Combine(cowPath, "files");
             Assert.True(Directory.Exists(cowFilesPath));
             
             var finalFile1 = Path.Combine(cowFilesPath, "requirements.txt");
-            var finalFile2 = Path.Combine(cowFilesPath, "src", "helper.py");
+            var finalFile2 = Path.Combine(cowFilesPath, "helper.py");
             
             Assert.True(File.Exists(finalFile1));
             Assert.True(File.Exists(finalFile2));

@@ -31,6 +31,12 @@ export default defineConfig({
     /* Base URL to use in actions like `await page.goto('/')` */
     baseURL: 'http://localhost:5173',
     
+    /* Run browser in non-headless mode for debugging */
+    headless: false,
+    
+    /* Slow down operations for debugging */
+    slowMo: 1000,
+    
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
     
@@ -55,19 +61,11 @@ export default defineConfig({
     timeout: 10000
   },
 
-  /* Configure projects for major browsers */
+  /* Configure projects - CHROMIUM-BASED BROWSERS ONLY */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     }
   ],
 

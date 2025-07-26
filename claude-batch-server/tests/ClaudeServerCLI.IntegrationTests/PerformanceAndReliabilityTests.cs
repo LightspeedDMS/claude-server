@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using Xunit;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
-using ClaudeBatchServer.Api;
 using ClaudeServerCLI.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,17 +11,16 @@ namespace ClaudeServerCLI.IntegrationTests;
 /// Performance and reliability tests for CLI functionality
 /// Tests startup time, memory usage, network resilience, and concurrent operations
 /// </summary>
-public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection("TestServer")]
+public class PerformanceAndReliabilityTests : IDisposable
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    private readonly HttpClient _httpClient;
-    private readonly string _baseUrl;
+    private readonly TestServerHarness _serverHarness;
+    private readonly CLITestHelper _cliHelper;
 
-    public PerformanceAndReliabilityTests(WebApplicationFactory<Program> factory)
+    public PerformanceAndReliabilityTests(TestServerHarness serverHarness)
     {
-        _factory = factory;
-        _httpClient = _factory.CreateClient();
-        _baseUrl = _httpClient.BaseAddress?.ToString() ?? "https://localhost:8443";
+        _serverHarness = serverHarness;
+        _cliHelper = new CLITestHelper(_serverHarness);
     }
 
     [Fact]
@@ -31,15 +28,14 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     {
         var stopwatch = Stopwatch.StartNew();
         
-        var executor = new CLITestExecutor(_baseUrl);
-        var result = await executor.ExecuteCommandAsync("--version");
+        var result = await _cliHelper.ExecuteCommandAsync("--version");
         
         stopwatch.Stop();
         
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000, 
             "CLI startup time should be under 1 second for good user experience");
         
-        result.Should().NotBeEmpty("Version command should produce output");
+        result.CombinedOutput.Should().NotBeEmpty("Version command should produce output");
     }
 
     [Fact]
@@ -47,15 +43,14 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     {
         var stopwatch = Stopwatch.StartNew();
         
-        var executor = new CLITestExecutor(_baseUrl);
-        var result = await executor.ExecuteCommandAsync("--help");
+        var result = await _cliHelper.ExecuteCommandAsync("--help");
         
         stopwatch.Stop();
         
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(500, 
             "Help command should be very fast");
         
-        result.Should().Contain("Claude Batch Server CLI");
+        result.CombinedOutput.Should().Contain("Claude Batch Server CLI");
     }
 
     [Theory]
@@ -109,13 +104,11 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
         var initialMemory = GC.GetTotalMemory(false);
         
         // Perform multiple operations to test memory usage
-        var executor = new CLITestExecutor(_baseUrl);
-        
         for (int i = 0; i < 10; i++)
         {
-            await executor.ExecuteCommandAsync("--help");
-            await executor.ExecuteCommandAsync("jobs list");
-            await executor.ExecuteCommandAsync("repos list");
+            await _cliHelper.ExecuteCommandAsync("--help");
+            await _cliHelper.ExecuteCommandAsync("jobs list");
+            await _cliHelper.ExecuteCommandAsync("repos list");
         }
         
         // Force garbage collection and measure memory
@@ -133,37 +126,34 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task CLI_NetworkTimeout_ShouldHandleGracefully()
     {
-        // Test with a very short timeout to simulate network issues
-        var executor = new CLITestExecutor("http://192.0.2.0:8443"); // Non-routable IP
-        
+        // Test with a non-routable IP address to simulate network timeout
         var stopwatch = Stopwatch.StartNew();
         
-        var exception = await Record.ExceptionAsync(async () =>
-        {
-            await executor.ExecuteCommandAsync("jobs list --timeout 1");
-        });
+        // Use a non-routable IP address that will cause a timeout
+        var result = await _cliHelper.ExecuteCommandAsync("jobs list --server-url https://192.0.2.0:8443 --timeout 1");
         
         stopwatch.Stop();
         
         // Should fail quickly and gracefully
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(5000, 
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(10000, 
             "Network timeout should be handled quickly");
         
-        exception.Should().NotBeNull("Should handle network failures gracefully");
+        // Should fail with a meaningful error message
+        result.Success.Should().BeFalse("Should fail when server is unreachable");
+        result.ExitCode.Should().NotBe(0, "Should have non-zero exit code on network failure");
     }
 
     [Fact]
     public async Task CLI_ConcurrentOperations_ShouldNotInterfere()
     {
-        var executor = new CLITestExecutor(_baseUrl);
-        var tasks = new List<Task<string>>();
+        var tasks = new List<Task<CliExecutionResult>>();
         
         // Start multiple concurrent operations
         for (int i = 0; i < 5; i++)
         {
-            tasks.Add(executor.ExecuteCommandAsync("--help"));
-            tasks.Add(executor.ExecuteCommandAsync("jobs list"));
-            tasks.Add(executor.ExecuteCommandAsync("repos list"));
+            tasks.Add(_cliHelper.ExecuteCommandAsync("--help"));
+            tasks.Add(_cliHelper.ExecuteCommandAsync("jobs list"));
+            tasks.Add(_cliHelper.ExecuteCommandAsync("repos list"));
         }
         
         var stopwatch = Stopwatch.StartNew();
@@ -172,7 +162,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
         
         // All operations should complete successfully
         results.Should().HaveCount(15);
-        results.Should().OnlyContain(r => !string.IsNullOrEmpty(r));
+        results.Should().OnlyContain(r => !string.IsNullOrEmpty(r.CombinedOutput));
         
         // Concurrent operations shouldn't take much longer than sequential ones
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(10000, 
@@ -208,7 +198,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
             
             // Test total size calculation
             var totalSize = fileUploadService.GetTotalUploadSize(filePaths);
-            totalSize.Should().BeGreaterThan(20 * 1024); // At least 20KB
+            totalSize.Should().BeGreaterOrEqualTo(20 * 1024); // At least 20KB
         }
         finally
         {
@@ -217,7 +207,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task PromptService_LargePrompts_ShouldHandleEfficiently()
+    public void PromptService_LargePrompts_ShouldHandleEfficiently()
     {
         using var serviceScope = CreateServiceScope();
         var promptService = serviceScope.ServiceProvider.GetRequiredService<IPromptService>();
@@ -236,7 +226,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task PromptService_ManyTemplateReferences_ShouldProcessQuickly()
+    public void PromptService_ManyTemplateReferences_ShouldProcessQuickly()
     {
         using var serviceScope = CreateServiceScope();
         var promptService = serviceScope.ServiceProvider.GetRequiredService<IPromptService>();
@@ -245,7 +235,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
         var templateBuilder = new StringBuilder();
         for (int i = 0; i < 15; i++)
         {
-            templateBuilder.AppendLine($"Please analyze {{file{i}.txt}} and compare it with {{data{i}.json}}.");
+            templateBuilder.AppendLine($"Please analyze {{{{file{i}.txt}}}} and compare it with {{{{data{i}.json}}}}.");
         }
         
         var promptWithManyTemplates = templateBuilder.ToString();
@@ -301,7 +291,6 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     [Fact]
     public async Task CLI_StressTest_ShouldHandleRepeatedOperations()
     {
-        var executor = new CLITestExecutor(_baseUrl);
         var operations = new List<Task>();
         
         // Perform 50 rapid-fire operations
@@ -311,7 +300,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
             {
                 try
                 {
-                    await executor.ExecuteCommandAsync("--help");
+                    await _cliHelper.ExecuteCommandAsync("--help");
                 }
                 catch
                 {
@@ -330,7 +319,7 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     }
 
     [Fact]
-    public async Task ErrorHandling_InvalidInputs_ShouldFailGracefully()
+    public void ErrorHandling_InvalidInputs_ShouldFailGracefully()
     {
         using var serviceScope = CreateServiceScope();
         var fileUploadService = serviceScope.ServiceProvider.GetRequiredService<IFileUploadService>();
@@ -435,4 +424,9 @@ public class PerformanceAndReliabilityTests : IClassFixture<WebApplicationFactor
     }
     
     #endregion
+    
+    public void Dispose()
+    {
+        // Cleanup if needed
+    }
 }

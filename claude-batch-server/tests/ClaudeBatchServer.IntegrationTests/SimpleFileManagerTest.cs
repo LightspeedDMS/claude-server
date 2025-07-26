@@ -46,7 +46,7 @@ public class SimpleFileManagerTest : IClassFixture<WebApplicationFactory<Program
 
         _client = _factory.CreateClient();
         _client.DefaultRequestHeaders.Authorization = 
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Test", "test-token");
     }
 
     [Fact]

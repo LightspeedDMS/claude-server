@@ -21,6 +21,7 @@ public static class ServiceConfiguration
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPromptService, PromptService>();
         services.AddScoped<IFileUploadService, FileUploadService>();
+        services.AddScoped<IUserManagementService, UserManagementService>();
 
         // HTTP client with Polly retry policy
         services.AddHttpClient<IApiClient, ApiClient>();
@@ -54,11 +55,7 @@ public static class ServiceConfiguration
         
         builder.ConfigureAppConfiguration((context, config) =>
         {
-            // Add command line arguments to configuration
-            config.AddCommandLine(args);
-            config.AddEnvironmentVariables("CLAUDE_SERVER_");
-            
-            // Add default configuration values
+            // Add default configuration values first (lowest priority)
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ApiClient:BaseUrl"] = "https://localhost:8443",
@@ -69,6 +66,19 @@ public static class ServiceConfiguration
                 ["Authentication:Profile"] = "default",
                 ["Authentication:TokenEnvironmentVariable"] = "CLAUDE_SERVER_TOKEN"
             });
+            
+            // Add environment variables (medium priority)
+            config.AddEnvironmentVariables("CLAUDE_SERVER_");
+            
+            // Add command line arguments with proper mappings (highest priority)
+            var commandLineMappings = new Dictionary<string, string>
+            {
+                ["--server-url"] = "ApiClient:BaseUrl",
+                ["--url"] = "ApiClient:BaseUrl",
+                ["--timeout"] = "ApiClient:TimeoutSeconds",
+                ["--verbose"] = "Logging:LogLevel:Default"
+            };
+            config.AddCommandLine(args, commandLineMappings);
         });
 
         builder.ConfigureServices((context, services) =>

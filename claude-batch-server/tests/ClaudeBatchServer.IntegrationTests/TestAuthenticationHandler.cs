@@ -29,14 +29,20 @@ public class TestAuthenticationHandler : AuthenticationHandler<AuthenticationSch
             return Task.FromResult(AuthenticateResult.NoResult());
         }
         
-        // If auth header doesn't start with Bearer, fail
-        if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        // Handle both Bearer and Test auth schemes
+        string token;
+        if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            token = authHeader.Substring("Bearer ".Length).Trim();
+        }
+        else if (authHeader.StartsWith("Test ", StringComparison.OrdinalIgnoreCase))
+        {
+            token = authHeader.Substring("Test ".Length).Trim();
+        }
+        else
         {
             return Task.FromResult(AuthenticateResult.NoResult());
         }
-        
-        // Extract token (for basic validation)
-        var token = authHeader.Substring("Bearer ".Length).Trim();
         
         // If token is empty or "expired.token.here" (our test expired token), fail
         if (string.IsNullOrEmpty(token) || token == "expired.token.here")

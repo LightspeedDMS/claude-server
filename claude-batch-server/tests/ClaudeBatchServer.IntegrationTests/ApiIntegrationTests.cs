@@ -42,7 +42,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     {
         var response = await _client.GetAsync("/");
         
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound); // No health endpoint implemented yet
+        response.StatusCode.Should().Be(HttpStatusCode.OK); // Static file index.html is served at root
     }
 
     [Fact]

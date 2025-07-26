@@ -12,6 +12,7 @@ public class JobServiceTests : IDisposable
 {
     private readonly Mock<IRepositoryService> _mockRepositoryService;
     private readonly Mock<IClaudeCodeExecutor> _mockClaudeExecutor;
+    private readonly Mock<IJobPersistenceService> _mockJobPersistenceService;
     private readonly Mock<IConfiguration> _mockConfiguration;
     private readonly Mock<ILogger<JobService>> _mockLogger;
     private readonly JobService _jobService;
@@ -21,6 +22,7 @@ public class JobServiceTests : IDisposable
     {
         _mockRepositoryService = new Mock<IRepositoryService>();
         _mockClaudeExecutor = new Mock<IClaudeCodeExecutor>();
+        _mockJobPersistenceService = new Mock<IJobPersistenceService>();
         _mockConfiguration = new Mock<IConfiguration>();
         _mockLogger = new Mock<ILogger<JobService>>();
 
@@ -30,14 +32,11 @@ public class JobServiceTests : IDisposable
 
         _mockConfiguration.Setup(c => c["Jobs:MaxConcurrent"]).Returns("5");
         _mockConfiguration.Setup(c => c["Jobs:TimeoutHours"]).Returns("24");
-
-        // Add mock for job persistence service
-        var mockJobPersistenceService = new Mock<IJobPersistenceService>();
         
         _jobService = new JobService(
             _mockRepositoryService.Object,
             _mockClaudeExecutor.Object,
-            mockJobPersistenceService.Object,
+            _mockJobPersistenceService.Object,
             _mockConfiguration.Object,
             _mockLogger.Object);
     }
@@ -72,7 +71,7 @@ public class JobServiceTests : IDisposable
         result.Should().NotBeNull();
         result.Status.Should().Be("created");
         result.User.Should().Be("testuser");
-        result.CowPath.Should().Be(testJobPath);
+        result.CowPath.Should().Be(string.Empty); // CoW path is empty during creation, set when job starts
         result.Title.Should().Be("Generated Test Title");
     }
 
@@ -251,14 +250,11 @@ public class JobServiceTests : IDisposable
             Options = new JobOptionsDto { CidxAware = false }
         };
 
-        // Create a test job directory that actually exists
-        var testJobPath = Path.Combine(_testWorkspaceRoot, "test-job-id");
-        Directory.CreateDirectory(testJobPath);
-
         _mockRepositoryService
             .Setup(r => r.GetRepositoryAsync("test-repo"))
             .ReturnsAsync(repository);
         
+        var testJobPath = Path.Combine(_testWorkspaceRoot, Guid.NewGuid().ToString());
         _mockRepositoryService
             .Setup(r => r.CreateCowCloneAsync("test-repo", It.IsAny<Guid>()))
             .ReturnsAsync(testJobPath);
@@ -269,6 +265,12 @@ public class JobServiceTests : IDisposable
 
         var createResult = await _jobService.CreateJobAsync(createRequest, "testuser");
         
+        // Set up staging path for the created job
+        var stagingPath = Path.Combine(_testWorkspaceRoot, "staging", createResult.JobId.ToString());
+        _mockJobPersistenceService
+            .Setup(p => p.GetJobStagingPath(createResult.JobId))
+            .Returns(stagingPath);
+        
         using var imageStream = new MemoryStream(new byte[] { 1, 2, 3, 4 });
         var uploadResult = await _jobService.UploadImageAsync(createResult.JobId, "testuser", "test.png", imageStream);
 
@@ -276,10 +278,11 @@ public class JobServiceTests : IDisposable
         uploadResult.Filename.Should().NotBeEmpty();
         uploadResult.Path.Should().Contain(createResult.JobId.ToString());
         
-        // Verify the image file was actually created
-        var imagesPath = Path.Combine(testJobPath, "images");
-        Directory.Exists(imagesPath).Should().BeTrue();
-        Directory.GetFiles(imagesPath).Should().HaveCount(1);
+        // Verify the image file was uploaded to staging area
+        Directory.Exists(stagingPath).Should().BeTrue();
+        var stagedFiles = Directory.GetFiles(stagingPath);
+        stagedFiles.Should().HaveCount(1);
+        stagedFiles[0].Should().EndWith(".png");
     }
 
     [Fact]

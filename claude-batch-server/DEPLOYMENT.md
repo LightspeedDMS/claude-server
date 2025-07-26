@@ -465,4 +465,10 @@ top -p $(pgrep -f ClaudeBatchServer)
 # 16-core system: MAX_CONCURRENT_JOBS=8-10
 ```
 
+**Queue Behavior**: The system automatically queues jobs exceeding `MaxConcurrent` rather than rejecting them:
+- Jobs are processed in FIFO order as slots become available
+- No memory overhead for queued jobs (only job metadata stored)
+- Queue survives server restarts and maintains job order
+- Monitor queue length via API: `GET /jobs` shows all user jobs with queue positions
+
 For detailed troubleshooting, see [README.md](README.md) and [API-REFERENCE.md](API-REFERENCE.md).

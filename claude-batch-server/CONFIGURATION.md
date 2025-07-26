@@ -116,10 +116,87 @@ Job execution and queue configuration:
   "Jobs": {
     "MaxConcurrent": "5",      // Maximum concurrent jobs
     "TimeoutHours": "24",      // Job timeout in hours
+    "RetentionDays": "30",     // Long-term job retention policy (optional, defaults to 30 days)
     "UseNewWorkflow": "true"   // Enable enhanced job workflow
   }
 }
 ```
+
+**Job Queue Behavior**:
+
+When the maximum number of concurrent jobs is reached, the system uses an intelligent queueing mechanism rather than rejecting new jobs:
+
+- **Automatic Queueing**: Jobs exceeding the concurrent limit are automatically placed in a FIFO (First In, First Out) queue
+- **No Job Rejection**: The system never rejects jobs - they wait in queue until resources become available
+- **Queue Position Tracking**: Each queued job receives a position number that updates as jobs ahead complete
+- **Resource Efficiency**: Queued jobs consume minimal memory and no system resources until execution begins
+- **Persistent Queue**: The queue survives server restarts - queued jobs are restored from disk during initialization
+- **Fair Processing**: Jobs execute in creation order, ensuring fair resource allocation
+
+**Job Lifecycle**:
+1. **Created** → Job is created but not yet started
+2. **Queued** → Job is waiting for an available execution slot (position shown in status)
+3. **Running** → Job is actively executing (consumes one concurrent slot)
+4. **Completed/Failed** → Job finishes and releases its execution slot for the next queued job
+
+**Timeout Behavior**:
+- `TimeoutHours`: Maximum age for any job before automatic cleanup (applies to all states)
+- Individual job timeout: Only starts counting when job reaches "Running" status
+- Queued jobs can wait indefinitely without timing out (until a slot becomes available)
+
+This approach ensures system stability while guaranteeing all submitted jobs will eventually execute, providing a better user experience than rejection-based systems.
+
+**Job Expiration and Cleanup System**:
+
+The system implements a comprehensive two-tier cleanup mechanism to manage disk space and system resources:
+
+**1. Short-Term Expiration (`TimeoutHours`)**:
+- **Trigger**: Every job queue processing cycle (every few seconds)
+- **Target**: Jobs older than `TimeoutHours` (default: 24 hours) from creation time
+- **Scope**: ALL jobs regardless of status (created, queued, running, completed, failed)
+- **Actions Performed**:
+  - Stop and remove CIDX Docker containers (if enabled for the job)
+  - Remove entire CoW workspace directory via `btrfs subvolume delete` or `Directory.Delete`
+  - Remove job from in-memory cache
+  - **Note**: Job metadata files remain on disk for historical record
+
+**2. Long-Term Retention Cleanup (`RetentionDays`)**:
+- **Trigger**: Every 10 minutes during job queue processing
+- **Target**: Finished jobs older than `RetentionDays` (default: 30 days) from completion time
+- **Scope**: Only jobs with terminal status (`completed`, `failed`, `timeout`, `terminated`, `cancelled`)
+- **Actions Performed**:
+  - Permanently delete job metadata files from disk storage
+  - Complete removal from job history and persistence layer
+
+**Manual Job Deletion**:
+When users delete jobs via `DELETE /jobs/{jobId}`:
+- **Immediate Actions**:
+  - Terminate running Claude Code processes (if job is running)
+  - Stop and cleanup CIDX containers (prevents Docker container leaks)
+  - Remove CoW workspace directory completely
+  - Remove job from in-memory cache
+  - Delete job metadata from persistent storage
+
+**Workspace Cleanup Details**:
+- **CoW Clones**: Removed via filesystem-specific commands:
+  - Btrfs snapshots: `btrfs subvolume delete <cow-path>`
+  - Regular directories: Recursive directory deletion
+- **Staging Files**: Cleaned up after successful copy to CoW workspace
+- **Uploaded Files**: Stored in CoW workspace, removed with the workspace
+- **CIDX Containers**: Docker containers stopped via `cidx stop` command
+
+**Resource Recovery**:
+This cleanup system ensures:
+- **Disk Space**: Automatic recovery of workspace storage
+- **Memory**: Cleanup of in-memory job tracking
+- **Docker Resources**: Prevention of orphaned CIDX containers
+- **Process Resources**: Termination of running Claude Code processes
+
+**Configuration Recommendations**:
+- `TimeoutHours: "24"` - Suitable for most development workflows
+- `RetentionDays: "30"` - Balances history retention with storage efficiency
+- For high-volume environments, consider shorter retention periods
+- For compliance requirements, consider longer retention periods
 
 ### Claude Code Integration
 

@@ -6,6 +6,7 @@ The Claude Server CLI provides comprehensive command-line access to the Claude B
 
 - [Installation & Setup](#installation--setup)
 - [Authentication Commands](#authentication-commands)
+- [User Management](#user-management)
 - [Repository Management](#repository-management)
 - [Job Management](#job-management)
 - [File Operations](#file-operations)
@@ -107,6 +108,164 @@ claude-server auth whoami
 # Show current user information
 claude-server auth whoami
 ```
+
+## User Management
+
+The user management commands allow you to manage Claude Server authentication users directly through shadow file operations. These commands work locally and do not require API communication.
+
+### `user add`
+
+Add a new user to Claude Server authentication.
+
+```bash
+claude-server user add <username> <password> [OPTIONS]
+```
+
+**Arguments:**
+- `<username>`: Username for the new user (3-32 characters, alphanumeric + underscore/dash, must start with letter)
+- `<password>`: Password for the new user
+
+**Options:**
+- `--uid`, `-u`: User ID (default: 1000)
+- `--gid`, `-g`: Group ID (default: 1000)
+- `--home`, `-h`: Home directory (defaults to /home/{username})
+- `--shell`, `-s`: Shell (default: /bin/bash)
+
+**Examples:**
+```bash
+# Add user with default settings
+claude-server user add testuser mypassword123
+
+# Add user with custom UID/GID
+claude-server user add workuser workpass --uid 1001 --gid 1001
+
+# Add user with custom home directory and shell
+claude-server user add adminuser adminpass --home /opt/admin --shell /bin/zsh
+
+# Add system user with low UID
+claude-server user add svcuser servicepass --uid 500 --gid 500 --home /var/svc
+```
+
+**Features:**
+- Automatic password hashing using SHA-512 with salt
+- Multiple hashing fallbacks (mkpasswd, Python crypt, C# implementation)
+- Automatic backup creation before modifications
+- Username format validation
+- Duplicate user detection
+- File permission and safety checks
+
+### `user remove`
+
+Remove a user from Claude Server authentication.
+
+```bash
+claude-server user remove <username> [OPTIONS]
+```
+
+**Arguments:**
+- `<username>`: Username to remove
+
+**Options:**
+- `--force`, `-f`: Skip confirmation prompt
+
+**Examples:**
+```bash
+# Remove user with confirmation
+claude-server user remove testuser
+
+# Force remove without confirmation
+claude-server user remove olduser --force
+```
+
+**Features:**
+- Confirmation prompt for safety (unless --force used)
+- Automatic backup creation before removal
+- Removes user from both passwd and shadow files
+- Detailed progress reporting
+
+### `user list`
+
+List all users in Claude Server authentication.
+
+```bash
+claude-server user list [OPTIONS]
+```
+
+**Options:**
+- `--detailed`, `-d`: Show detailed user information including home directory, shell, and password status
+
+**Examples:**
+```bash
+# Basic user list
+claude-server user list
+
+# Detailed user information
+claude-server user list --detailed
+```
+
+**Output Information:**
+- **Basic view:** Username, UID, Status, Last Password Change
+- **Detailed view:** Username, UID, GID, Home Directory, Shell, Last Password Change, Status
+
+**User Status Types:**
+- `✅ Active`: User has valid password and shadow entry
+- `🔒 No Password`: User exists but has no password set
+- `❌ No Shadow`: User in passwd file but missing shadow entry
+- `🚫 Locked`: User account is locked
+
+### `user update`
+
+Update a user's password in Claude Server authentication.
+
+```bash
+claude-server user update <username> <new-password>
+```
+
+**Arguments:**
+- `<username>`: Username to update
+- `<new-password>`: New password for the user
+
+**Examples:**
+```bash
+# Update user password
+claude-server user update testuser newsecurepassword123
+
+# Update system user password
+claude-server user update svcuser newservicepass
+```
+
+**Features:**
+- Automatic password hashing using SHA-512 with salt
+- Preserves other shadow file fields (expiration, etc.)
+- Automatic backup creation before update
+- User existence validation
+- Updates last password change timestamp
+
+### User Management File Operations
+
+The user management system operates on local shadow files:
+
+**Files Managed:**
+- `claude-server-passwd`: User account information (username, UID, GID, home, shell)
+- `claude-server-shadow`: Password hashes and security information
+
+**File Locations:**
+- Commands look for auth files in the current working directory first
+- Fallback to project directory structure if not found locally
+- Perfect for development and deployment scenarios
+
+**Backup System:**
+All user management operations create timestamped backups:
+```
+claude-server-passwd.backup.20250725_184000
+claude-server-shadow.backup.20250725_184000
+```
+
+**Security Features:**
+- SHA-512 password hashing with random salt generation
+- Multiple hashing method fallbacks for cross-platform compatibility
+- File validation and safety checks
+- Detailed error reporting and recovery information
 
 ## Repository Management
 
@@ -500,6 +659,10 @@ Profiles are stored in:
 # First-time setup
 claude-server auth login --email user@example.com
 claude-server repos create --name myapp --path ./my-application
+
+# Set up local authentication users
+claude-server user add adminuser securepassword --uid 1001
+claude-server user add apiuser apipassword --uid 1002
 ```
 
 **2. Simple Job Creation:**
@@ -601,6 +764,39 @@ find ./analysis-files -type f \( -name "*.txt" -o -name "*.json" -o -name "*.csv
     --auto-start
 ```
 
+**User Management Workflows:**
+```bash
+# Complete user management workflow
+# 1. Set up authentication users for a new deployment
+claude-server user add admin masterpassword --uid 1000 --shell /bin/bash
+claude-server user add developer devpass --uid 1001 --home /opt/dev
+claude-server user add service svcpass --uid 1002 --shell /bin/false
+
+# 2. List all users to verify setup
+claude-server user list --detailed
+
+# 3. Update passwords for security rotation
+claude-server user update admin newmasterpass
+claude-server user update developer newdevpass
+claude-server user update service newsvcpass
+
+# 4. Remove deprecated users
+claude-server user remove olduser --force
+claude-server user remove tempuser --force
+
+# 5. Verify final user state
+claude-server user list
+
+# Batch user creation from configuration
+while read username password uid; do
+  claude-server user add "$username" "$password" --uid "$uid"
+done < users.txt
+
+# Backup current authentication state
+cp claude-server-passwd claude-server-passwd.manual-backup
+cp claude-server-shadow claude-server-shadow.manual-backup
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -633,6 +829,26 @@ claude-server --server-url https://your-server.com --timeout 10 repos list
 ```bash
 # Use verbose mode for debugging
 claude-server --verbose jobs create --repo myapp --prompt "test"
+```
+
+**5. User management issues:**
+```bash
+# Check authentication file permissions
+ls -la claude-server-passwd claude-server-shadow
+
+# Verify user management commands work
+claude-server user list
+
+# Test password hashing
+claude-server user add testuser testpass123
+claude-server user remove testuser --force
+
+# Check backup files if operation failed
+ls -la *.backup.*
+
+# Restore from backup if needed
+cp claude-server-passwd.backup.20250725_184000 claude-server-passwd
+cp claude-server-shadow.backup.20250725_184000 claude-server-shadow
 ```
 
 ### Getting Help

@@ -55,7 +55,7 @@ public class ApiClient : IApiClient, IDisposable
     {
         _logger.LogDebug("Attempting login for user: {Username}", request.Username);
         
-        var response = await PostAsync<LoginRequest, LoginResponse>("api/auth/login", request, cancellationToken, requireAuth: false);
+        var response = await PostAsync<LoginRequest, LoginResponse>("auth/login", request, cancellationToken, requireAuth: false);
         
         if (response != null && !string.IsNullOrEmpty(response.Token))
         {
@@ -72,7 +72,7 @@ public class ApiClient : IApiClient, IDisposable
         
         try
         {
-            var response = await PostAsync<object, LogoutResponse>("api/auth/logout", new { }, cancellationToken);
+            var response = await PostAsync<object, LogoutResponse>("auth/logout", new { }, cancellationToken);
             ClearAuthToken();
             _logger.LogInformation("Logout successful");
             return response ?? new LogoutResponse { Success = true };
@@ -89,35 +89,35 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<RegisterRepositoryResponse> CreateRepositoryAsync(RegisterRepositoryRequest request, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating repository: {Name}", request.Name);
-        var response = await PostAsync<RegisterRepositoryRequest, RegisterRepositoryResponse>("api/repositories", request, cancellationToken);
+        var response = await PostAsync<RegisterRepositoryRequest, RegisterRepositoryResponse>("repositories/register", request, cancellationToken);
         return response ?? throw new InvalidOperationException("Failed to create repository");
     }
 
     public async Task<IEnumerable<RepositoryInfo>> GetRepositoriesAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting repositories list");
-        var response = await GetAsync<IEnumerable<RepositoryResponse>>("api/repositories", cancellationToken);
+        var response = await GetAsync<IEnumerable<RepositoryResponse>>("repositories", cancellationToken);
         return response?.Select(MapRepositoryInfo) ?? Enumerable.Empty<RepositoryInfo>();
     }
 
     public async Task<RepositoryInfo> GetRepositoryAsync(string name, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting repository: {Name}", name);
-        var response = await GetAsync<RepositoryResponse>($"api/repositories/{Uri.EscapeDataString(name)}", cancellationToken);
+        var response = await GetAsync<RepositoryResponse>($"repositories/{Uri.EscapeDataString(name)}", cancellationToken);
         return response != null ? MapRepositoryInfo(response) : throw new InvalidOperationException($"Repository '{name}' not found");
     }
 
     public async Task<UnregisterRepositoryResponse> DeleteRepositoryAsync(string name, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting repository: {Name}", name);
-        var response = await DeleteAsync<UnregisterRepositoryResponse>($"api/repositories/{Uri.EscapeDataString(name)}", cancellationToken);
+        var response = await DeleteAsync<UnregisterRepositoryResponse>($"repositories/{Uri.EscapeDataString(name)}", cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to delete repository '{name}'");
     }
 
     public async Task<IEnumerable<FileInfoResponse>> GetRepositoryFilesAsync(string repoName, string? path = null, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting files for repository: {RepoName}, path: {Path}", repoName, path ?? "root");
-        var url = $"api/repositories/{Uri.EscapeDataString(repoName)}/files";
+        var url = $"repositories/{Uri.EscapeDataString(repoName)}/files";
         if (!string.IsNullOrEmpty(path))
         {
             url += $"?path={Uri.EscapeDataString(path)}";
@@ -129,7 +129,7 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<FileContentResponse> GetRepositoryFileContentAsync(string repoName, string filePath, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting file content for repository: {RepoName}, file: {FilePath}", repoName, filePath);
-        var url = $"api/repositories/{Uri.EscapeDataString(repoName)}/files/{Uri.EscapeDataString(filePath)}/content";
+        var url = $"repositories/{Uri.EscapeDataString(repoName)}/files/{Uri.EscapeDataString(filePath)}/content";
         var response = await GetAsync<FileContentResponse>(url, cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to get content for file '{filePath}' in repository '{repoName}'");
     }
@@ -138,14 +138,14 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<CreateJobResponse> CreateJobAsync(CreateJobRequest request, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating job for repository: {Repository}", request.Repository);
-        var response = await PostAsync<CreateJobRequest, CreateJobResponse>("api/jobs", request, cancellationToken);
+        var response = await PostAsync<CreateJobRequest, CreateJobResponse>("jobs", request, cancellationToken);
         return response ?? throw new InvalidOperationException("Failed to create job");
     }
 
     public async Task<JobStatusResponse> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting job status: {JobId}", jobId);
-        var response = await GetAsync<JobStatusResponse>($"api/jobs/{jobId}", cancellationToken);
+        var response = await GetAsync<JobStatusResponse>($"jobs/{jobId}", cancellationToken);
         return response ?? throw new InvalidOperationException($"Job '{jobId}' not found");
     }
 
@@ -153,7 +153,7 @@ public class ApiClient : IApiClient, IDisposable
     {
         _logger.LogDebug("Getting jobs list with filter");
         
-        var url = "api/jobs";
+        var url = "jobs";
         var queryParams = new List<string>();
         
         if (filter != null)
@@ -186,77 +186,114 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<StartJobResponse> StartJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Starting job: {JobId}", jobId);
-        var response = await PostAsync<object, StartJobResponse>($"api/jobs/{jobId}/start", new { }, cancellationToken);
+        var response = await PostAsync<object, StartJobResponse>($"jobs/{jobId}/start", new { }, cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to start job '{jobId}'");
     }
 
     public async Task<CancelJobResponse> CancelJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Cancelling job: {JobId}", jobId);
-        var response = await PostAsync<object, CancelJobResponse>($"api/jobs/{jobId}/cancel", new { }, cancellationToken);
+        var response = await PostAsync<object, CancelJobResponse>($"jobs/{jobId}/cancel", new { }, cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to cancel job '{jobId}'");
     }
 
     public async Task<DeleteJobResponse> DeleteJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting job: {JobId}", jobId);
-        var response = await DeleteAsync<DeleteJobResponse>($"api/jobs/{jobId}", cancellationToken);
+        var response = await DeleteAsync<DeleteJobResponse>($"jobs/{jobId}", cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to delete job '{jobId}'");
     }
 
-    // File Upload
+    // File Upload - Updated to match API's single-file per request pattern
     public async Task<IEnumerable<FileUploadResponse>> UploadFilesAsync(string jobId, IEnumerable<FileUpload> files, bool overwrite = false, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Uploading files for job: {JobId}", jobId);
         
-        using var content = new MultipartFormDataContent();
+        var results = new List<FileUploadResponse>();
         
         foreach (var file in files)
         {
-            var fileContent = new ByteArrayContent(file.Content);
-            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(file.ContentType);
-            content.Add(fileContent, "files", file.FileName);
+            var result = await UploadSingleFileAsync(jobId, file, overwrite, cancellationToken);
+            results.Add(result);
         }
+        
+        return results;
+    }
+
+    // Single file upload to match the API endpoint that expects IFormFile
+    public async Task<FileUploadResponse> UploadSingleFileAsync(string jobId, FileUpload file, bool overwrite = false, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Uploading single file for job: {JobId}, file: {FileName}", jobId, file.FileName);
+        
+        using var content = new MultipartFormDataContent();
+        
+        var fileContent = new ByteArrayContent(file.Content);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(file.ContentType);
+        content.Add(fileContent, "file", file.FileName); // Changed from "files" to "file" to match API
         
         if (overwrite)
         {
             content.Add(new StringContent("true"), "overwrite");
         }
 
-        var response = await SendAsync($"api/jobs/{jobId}/files", HttpMethod.Post, content, cancellationToken);
+        var response = await SendAsync($"jobs/{jobId}/files", HttpMethod.Post, content, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<IEnumerable<FileUploadResponse>>(json, _jsonOptions);
-        return result ?? Enumerable.Empty<FileUploadResponse>();
+        var result = JsonSerializer.Deserialize<FileUploadResponse>(json, _jsonOptions);
+        return result ?? throw new InvalidOperationException($"Failed to upload file '{file.FileName}'");
     }
 
     public async Task<IEnumerable<JobFile>> GetJobFilesAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting files for job: {JobId}", jobId);
-        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"api/jobs/{jobId}/files/files?path=", cancellationToken);
+        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"jobs/{jobId}/files/files?path=", cancellationToken);
         return response?.Select(MapJobFile) ?? Enumerable.Empty<JobFile>();
     }
 
     public async Task<Stream> DownloadJobFileAsync(string jobId, string fileName, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Downloading file for job: {JobId}, file: {FileName}", jobId, fileName);
-        var response = await SendAsync($"api/jobs/{jobId}/files/download?path={Uri.EscapeDataString(fileName)}", HttpMethod.Get, null, cancellationToken);
+        var response = await SendAsync($"jobs/{jobId}/files/download?path={Uri.EscapeDataString(fileName)}", HttpMethod.Get, null, cancellationToken);
         return await response.Content.ReadAsStreamAsync(cancellationToken);
     }
 
-    // Image Upload
+    // Image Upload - Currently not supported by API (no /images endpoint exists)
     public async Task<ImageUploadResponse> UploadImageAsync(string jobId, byte[] imageData, string fileName, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Uploading image for job: {JobId}, file: {FileName}", jobId, fileName);
+        _logger.LogDebug("Uploading image as regular file for job: {JobId}, file: {FileName}", jobId, fileName);
         
-        using var content = new MultipartFormDataContent();
-        var imageContent = new ByteArrayContent(imageData);
-        imageContent.Headers.ContentType = MediaTypeHeaderValue.Parse("image/*");
-        content.Add(imageContent, "image", fileName);
-
-        var response = await SendAsync($"api/jobs/{jobId}/images", HttpMethod.Post, content, cancellationToken);
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<ImageUploadResponse>(json, _jsonOptions);
-        return result ?? throw new InvalidOperationException("Failed to upload image");
+        // Since there's no dedicated image endpoint, upload as regular file
+        var fileUpload = new FileUpload
+        {
+            FileName = fileName,
+            Content = imageData,
+            ContentType = GetImageContentType(fileName),
+            FilePath = fileName
+        };
+        
+        var result = await UploadSingleFileAsync(jobId, fileUpload, false, cancellationToken);
+        
+        // Convert FileUploadResponse to ImageUploadResponse for compatibility
+        return new ImageUploadResponse
+        {
+            Filename = result.Filename,
+            Path = result.Path
+        };
+    }
+    
+    private static string GetImageContentType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".svg" => "image/svg+xml",
+            ".webp" => "image/webp",
+            ".ico" => "image/x-icon",
+            _ => "image/*"
+        };
     }
 
     // Configuration
@@ -292,7 +329,7 @@ public class ApiClient : IApiClient, IDisposable
         try
         {
             _logger.LogDebug("Checking server health");
-            var response = await SendAsync("api/health", HttpMethod.Get, null, cancellationToken, requireAuth: false);
+            var response = await SendAsync("health", HttpMethod.Get, null, cancellationToken, requireAuth: false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)

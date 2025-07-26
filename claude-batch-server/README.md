@@ -9,12 +9,13 @@ A dockerized REST API server written in .NET Core that automates Claude Code exe
 - **🔄 Git Integration**: Automatic git pull before job execution with status tracking
 - **🧠 Cidx Semantic Search**: Per-job semantic indexing with Docker container isolation
 - **⚡ Smart System Prompts**: Dynamic Claude Code prompts based on cidx availability
-- **📋 Job Queue System**: Configurable concurrent job processing with queue management
+- **📋 Smart Job Queue**: FIFO queueing system that never rejects jobs - automatically queues when concurrent limit reached
 - **👤 User Impersonation**: Secure execution of Claude Code as authenticated users
 - **🔒 Multi-User Support**: Complete isolation between user sessions
 - **📄 File Staging System**: Upload files to staging area with automatic copy to job workspace
 - **🔗 Placeholder Replacement**: {{filename}} placeholders in prompts replaced with uploaded filenames
 - **🌐 RESTful API**: Comprehensive API for job management, repository management, file operations
+- **💻 Command Line Interface**: Full-featured CLI for all operations including user management
 - **🏠 Tilde Path Expansion**: Configuration paths support ~/home directory expansion
 - **🐳 Docker Support**: Full containerization with privileged mode support
 
@@ -103,6 +104,67 @@ systemctl status claude-batch-server
 # View logs
 journalctl -u claude-batch-server -f
 ```
+
+## Command Line Interface
+
+The Claude Server CLI provides comprehensive command-line access to all server functionality, including user management, repository operations, and job management.
+
+### Installation
+
+```bash
+# Install as global tool
+dotnet tool install -g ClaudeServerCLI
+
+# Or run from source
+cd src/ClaudeServerCLI
+dotnet run -- [commands]
+```
+
+### User Management Commands
+
+The CLI includes built-in user management for shadow file authentication:
+
+```bash
+# Add users to authentication system
+claude-server user add username password --uid 1001 --gid 1001
+
+# List all users with detailed information
+claude-server user list --detailed
+
+# Update user passwords
+claude-server user update username newpassword
+
+# Remove users from authentication
+claude-server user remove username --force
+```
+
+**Features:**
+- Direct shadow file management (no API required)
+- SHA-512 password hashing with salt generation
+- Automatic backup creation before modifications
+- Username validation and duplicate checking
+- Colored console output with progress indicators
+
+### API Operations
+
+```bash
+# Repository management
+claude-server repos list
+claude-server repos create --name myproject --path /path/to/repo
+
+# Job management with file upload
+claude-server jobs create --repo myproject --prompt "Analyze codebase" --auto-start
+claude-server jobs list --watch
+claude-server jobs show <job-id> --watch
+
+# Authentication
+claude-server auth login --username user --password pass
+claude-server auth whoami
+```
+
+### Complete Documentation
+
+See [CLI Reference](src/ClaudeServerCLI/docs/CLI-REFERENCE.md) for complete command documentation, examples, and advanced usage.
 
 ## API Documentation
 
@@ -252,6 +314,8 @@ Response:
 - **Job Status**: `created`, `queued`, `git_pulling`, `git_failed`, `cidx_indexing`, `cidx_ready`, `running`, `completed`, `failed`, `timeout`
 - **Git Status**: `not_checked`, `checking`, `pulled`, `failed`, `not_git_repo`
 - **Cidx Status**: `not_started`, `starting`, `indexing`, `ready`, `failed`, `stopped`
+
+**Queue Position**: Shows waiting position when status is `queued` (0 when running/completed). Updates automatically as jobs ahead complete.
 
 #### DELETE /jobs/{jobId}
 Terminate and clean up job (including cidx containers).
@@ -459,10 +523,27 @@ The system automatically detects and uses the most efficient CoW method:
 {
   "Jobs": {
     "MaxConcurrent": "5",
-    "TimeoutHours": "24"
+    "TimeoutHours": "24",
+    "RetentionDays": "30"
   }
 }
 ```
+
+**Job Queue Behavior**: The system uses intelligent queueing rather than rejecting jobs when the concurrent limit is reached:
+
+- **Queue-Not-Reject**: Jobs exceeding `MaxConcurrent` are automatically queued in FIFO order
+- **Position Tracking**: Each queued job shows its position and updates as jobs ahead complete  
+- **Persistent Queue**: Queue survives server restarts - all queued jobs are restored from disk
+- **Resource Efficient**: Queued jobs consume minimal memory until execution begins
+- **Fair Processing**: Jobs execute in creation order ensuring fair resource allocation
+
+Job States: `created` → `queued` (if limit reached) → `running` → `completed/failed`
+
+**Job Cleanup System**: The system automatically manages disk space with two-tier cleanup:
+
+- **Short-term (`TimeoutHours`)**: Removes workspaces of jobs older than 24 hours (any status)
+- **Long-term (`RetentionDays`)**: Permanently deletes job records older than 30 days (completed jobs only) 
+- **Manual deletion**: Users can delete jobs immediately via API, cleaning all resources
 
 ## Security
 

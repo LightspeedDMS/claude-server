@@ -6,14 +6,17 @@ using ClaudeServerCLI.Services;
 
 namespace ClaudeServerCLI.IntegrationTests;
 
-public class CliIntegrationTests : IClassFixture<ApiServerFixture>
+[Collection("TestServer")]
+public class CliIntegrationTests : IClassFixture<TestServerHarness>
 {
-    private readonly ApiServerFixture _serverFixture;
+    private readonly TestServerHarness _serverHarness;
+    private readonly CLITestHelper _cliHelper;
     private readonly IServiceProvider _serviceProvider;
 
-    public CliIntegrationTests(ApiServerFixture serverFixture)
+    public CliIntegrationTests(TestServerHarness serverHarness)
     {
-        _serverFixture = serverFixture;
+        _serverHarness = serverHarness;
+        _cliHelper = new CLITestHelper(_serverHarness);
 
         // Create service collection for testing
         var services = new ServiceCollection();
@@ -21,7 +24,7 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ApiClient:BaseUrl"] = _serverFixture.ServerUrl,
+                ["ApiClient:BaseUrl"] = _serverHarness.ServerUrl,
                 ["ApiClient:TimeoutSeconds"] = "10",
                 ["ApiClient:RetryCount"] = "2",
                 ["ApiClient:RetryDelayMs"] = "100",
@@ -38,13 +41,13 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
     public async Task ApiClient_ServerHealthCheck_ShouldReturnTrue()
     {
         // Arrange
-        var apiClient = _serviceProvider.GetRequiredService<IApiClient>();
+        var apiClient = _cliHelper.CreateApiClient();
 
         // Act
         var isHealthy = await apiClient.IsServerHealthyAsync();
 
         // Assert
-        isHealthy.Should().BeTrue();
+        isHealthy.Should().BeTrue("The test server should be healthy and responding");
     }
 
     [Fact]
@@ -62,9 +65,9 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
         profile.Should().NotBeNull();
         profile.ServerUrl.Should().NotBeNullOrEmpty();
 
-        // Auth service should indicate not authenticated
+        // Auth service should indicate not authenticated initially
         var isAuthenticated = await authService.IsAuthenticatedAsync("default");
-        isAuthenticated.Should().BeFalse();
+        isAuthenticated.Should().BeFalse("Should not be authenticated initially");
     }
 
     [Fact]
@@ -100,7 +103,7 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
     }
 
     [Fact]
-    public async Task ApiClient_Configuration_ShouldRespectSettings()
+    public void ApiClient_Configuration_ShouldRespectSettings()
     {
         // Arrange & Act
         var apiClient = _serviceProvider.GetRequiredService<IApiClient>();
@@ -112,7 +115,7 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
         apiClient.ClearAuthToken();
 
         // Should be able to change configuration without errors
-        apiClient.SetBaseUrl(_serverFixture.ServerUrl);
+        apiClient.SetBaseUrl(_serverHarness.ServerUrl);
     }
 
     public void Dispose()
@@ -121,30 +124,3 @@ public class CliIntegrationTests : IClassFixture<ApiServerFixture>
     }
 }
 
-/// <summary>
-/// Test fixture that represents an API server for integration testing.
-/// In a real scenario, this would start/stop the actual API server.
-/// For now, it provides configuration for connecting to an existing server.
-/// </summary>
-public class ApiServerFixture : IDisposable
-{
-    public string ServerUrl { get; } = "https://localhost:8443";
-
-    public ApiServerFixture()
-    {
-        // In a real integration test, you might:
-        // 1. Start the API server process
-        // 2. Wait for it to be ready
-        // 3. Configure test data
-        
-        // For now, we assume the server is running externally
-    }
-
-    public void Dispose()
-    {
-        // In a real integration test, you would:
-        // 1. Stop the API server process
-        // 2. Clean up test data
-        // 3. Remove temporary files
-    }
-}

@@ -48,6 +48,10 @@ class Program
         ConfigureServiceProvider(jobsCommand, serviceProvider);
         rootCommand.AddCommand(jobsCommand);
         
+        var userCommand = new UserCommand();
+        ConfigureServiceProvider(userCommand, serviceProvider);
+        rootCommand.AddCommand(userCommand);
+        
         // Add global options
         var verboseOption = new Option<bool>(
             aliases: ["--verbose", "-v"],
