@@ -1331,28 +1331,36 @@ build_and_deploy() {
     
     cd "$PROJECT_DIR"
     
-    # Build the application
+    # Publish the application (includes wwwroot and all dependencies)
     export PATH="$HOME/.dotnet:$PATH"
     dotnet restore
-    dotnet build -c Release
+    log "Publishing API server with static files..."
+    dotnet publish src/ClaudeBatchServer.Api -c Release --no-restore
     
-    # Verify the API project built successfully
-    local api_dll="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/ClaudeBatchServer.Api.dll"
-    local api_runtime_config="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/ClaudeBatchServer.Api.runtimeconfig.json"
+    # Verify the API project published successfully
+    local api_dll="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/ClaudeBatchServer.Api.dll"
+    local api_runtime_config="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/ClaudeBatchServer.Api.runtimeconfig.json"
+    local api_wwwroot="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/wwwroot"
     
     if [[ ! -f "$api_dll" ]]; then
-        error "API DLL not found at $api_dll after build"
-        error "Build may have failed. Check build output above."
+        error "API DLL not found at $api_dll after publish"
+        error "Publish may have failed. Check build output above."
         exit 1
     fi
     
     if [[ ! -f "$api_runtime_config" ]]; then
-        error "API runtime config not found at $api_runtime_config after build"
-        error "Build may have failed. Check build output above."
+        error "API runtime config not found at $api_runtime_config after publish"
+        error "Publish may have failed. Check build output above."
         exit 1
     fi
     
-    log "API build verified - DLL and runtime config found in build output directory"
+    if [[ ! -d "$api_wwwroot" ]]; then
+        error "wwwroot directory not found at $api_wwwroot after publish"
+        error "Static files (Web UI) may not be available. Check publish output above."
+        exit 1
+    fi
+    
+    log "API publish verified - DLL, runtime config, and wwwroot found in publish directory"
     
     # Build web UI
     build_web_ui
@@ -1443,8 +1451,8 @@ build_web_ui() {
         sudo systemctl stop claude-batch-server
     fi
     
-    # Copy built web UI to API wwwroot directory
-    local wwwroot_dir="$PROJECT_DIR/src/ClaudeBatchServer.Api/wwwroot"
+    # Copy built web UI to API publish wwwroot directory
+    local wwwroot_dir="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/wwwroot"
     local deployment_needed=false
     
     # Check if deployment is needed (idempotent)
@@ -1791,7 +1799,7 @@ Wants=network.target
 Type=exec
 User=$current_user
 Group=$current_group
-WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0
+WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish
 ExecStart=$dotnet_path ClaudeBatchServer.Api.dll
 Restart=always
 RestartSec=10
@@ -2122,12 +2130,12 @@ $(echo -e "$(echo -e "${YELLOW}🧪 Testing Your Installation:${NC}")")
     -d '{"username":"myuser","password":"mypassword123"}'${NC}
 
 • Access Swagger UI:
-  ${BLUE}Open: http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
+  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/swagger" || echo "http://$primary_ip:5000/swagger")${NC}
 
 $(echo -e "${YELLOW}🌐 Web UI Access:${NC}")
 
 • Main Web Application:
-  ${BLUE}Open: http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/${NC}
+  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/" || echo "http://$primary_ip:5000/")${NC}
 
 • Features Available:
   - User authentication and login
@@ -2251,10 +2259,17 @@ fi
     printf "\n"
     
     printf "%bAccess Your Server:%b\n" "$YELLOW" "$NC"
-    printf "• Web UI: %bhttp://%s%s:%s%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
-    printf "• API: %bhttp://%s%s:%s/api%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
-    printf "• Swagger UI: %bhttp://%s%s:%s/swagger%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
-    printf "• CLI Login: %bclaude-server auth login --server-url http://%s%s:%s%b\n\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    if [[ "$PRODUCTION_MODE" == "true" ]]; then
+        printf "• Web UI: %bhttps://%s%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• API: %bhttps://%s/api%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• Swagger UI: %bhttps://%s/swagger%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• CLI Login: %bclaude-server auth login --server-url https://%s%b\n\n" "$BLUE" "$primary_ip" "$NC"
+    else
+        printf "• Web UI: %bhttp://%s:5000%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• API: %bhttp://%s:5000/api%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• Swagger UI: %bhttp://%s:5000/swagger%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• CLI Login: %bclaude-server auth login --server-url http://%s:5000%b\n\n" "$BLUE" "$primary_ip" "$NC"
+    fi
     
     printf "%bService Management:%b\n" "$YELLOW" "$NC"
     printf "• Status: %bsudo systemctl status claude-batch-server%b\n" "$BLUE" "$NC"
