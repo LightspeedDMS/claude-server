@@ -249,24 +249,25 @@ public class JobService : IJobService, IJobStatusCallback
             terminated = true;
         }
 
-        // CRITICAL FIX: Stop cidx containers before removing CoW clone
-        // This prevents Docker container leaks when jobs used cidx
-        bool cidxStopped = false;
+        // CRITICAL: Run cidx uninstall before removing CoW clone
+        // This prevents Docker container leaks and cleans up root-owned data when jobs used cidx
+        bool cidxUninstalled = false;
         if (job.Options.CidxAware && Directory.Exists(job.CowPath))
         {
             try
             {
-                _logger.LogInformation("Stopping cidx containers for job {JobId} before cleanup", jobId);
-                var stopResult = await _claudeExecutor.StopCidxAsync(job.CowPath, username, CancellationToken.None);
-                cidxStopped = stopResult.ExitCode == 0;
-                if (!cidxStopped)
+                _logger.LogInformation("Running cidx uninstall for job {JobId} to clean up containers and root-owned data", jobId);
+                var uninstallResult = await _claudeExecutor.UninstallCidxAsync(job.CowPath, username, CancellationToken.None);
+                cidxUninstalled = uninstallResult.ExitCode == 0;
+                if (!cidxUninstalled)
                 {
-                    _logger.LogWarning("Failed to stop cidx containers for job {JobId}: {Output}", jobId, stopResult.Output);
+                    _logger.LogWarning("Failed to run cidx uninstall for job {JobId}: {Output}", jobId, uninstallResult.Output);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error stopping cidx containers for job {JobId}", jobId);
+                _logger.LogError(ex, "Error running cidx uninstall for job {JobId}, continuing with removal", jobId);
+                // Continue with removal even if cidx uninstall fails
             }
         }
 
@@ -276,8 +277,8 @@ public class JobService : IJobService, IJobStatusCallback
         // Remove job from persistent storage
         await _jobPersistenceService.DeleteJobAsync(jobId);
 
-        _logger.LogInformation("Deleted job {JobId} for user {Username}, terminated: {Terminated}, cidx stopped: {CidxStopped}, CoW removed: {CowRemoved}", 
-            jobId, username, terminated, cidxStopped, cowRemoved);
+        _logger.LogInformation("Deleted job {JobId} for user {Username}, terminated: {Terminated}, cidx uninstalled: {CidxUninstalled}, CoW removed: {CowRemoved}", 
+            jobId, username, terminated, cidxUninstalled, cowRemoved);
 
         return new DeleteJobResponse
         {

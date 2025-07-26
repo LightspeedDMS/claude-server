@@ -917,6 +917,39 @@ Prompt to summarize:
         }
     }
 
+    public async Task<(int ExitCode, string Output)> UninstallCidxAsync(string workspacePath, string username, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Running cidx uninstall for workspace {WorkspacePath} by user {Username}", workspacePath, username);
+            
+            var userInfo = GetUserInfo(username);
+            if (userInfo == null)
+            {
+                _logger.LogError("User '{Username}' not found for cidx uninstall operation", username);
+                return (-1, $"User '{username}' not found");
+            }
+
+            var result = await ExecuteCidxCommandAsync("uninstall --force", workspacePath, userInfo, cancellationToken);
+            
+            if (result.ExitCode == 0)
+            {
+                _logger.LogInformation("Successfully ran cidx uninstall for workspace {WorkspacePath}", workspacePath);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to run cidx uninstall for workspace {WorkspacePath}: {Output}", workspacePath, result.Output);
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error running cidx uninstall for workspace {WorkspacePath}", workspacePath);
+            return (-1, $"Error running cidx uninstall: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Check if a process is still running by PID
     /// </summary>

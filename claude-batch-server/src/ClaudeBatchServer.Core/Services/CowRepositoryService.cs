@@ -609,10 +609,8 @@ public class CowRepositoryService : IRepositoryService
         {
             case CowMethod.XfsReflink:
             case CowMethod.Ext4Reflink:
+            case CowMethod.BtrfsReflink:
                 await CreateReflinkCloneAsync(repository.Path, jobPath);
-                break;
-            case CowMethod.BtrfsSnapshot:
-                await CreateBtrfsSnapshotAsync(repository.Path, jobPath);
                 break;
             case CowMethod.HardlinkFallback:
                 await CreateHardlinkCloneAsync(repository.Path, jobPath);
@@ -651,27 +649,27 @@ public class CowRepositoryService : IRepositoryService
         return jobPath;
     }
 
-    public async Task<bool> RemoveCowCloneAsync(string cowPath)
+    public Task<bool> RemoveCowCloneAsync(string cowPath)
     {
         try
         {
-            if (!Directory.Exists(cowPath)) return true;
+            if (!Directory.Exists(cowPath)) return Task.FromResult(true);
 
-            if (_cowMethod == CowMethod.BtrfsSnapshot)
+            if (_cowMethod == CowMethod.BtrfsReflink)
             {
-                var result = await ExecuteCommandAsync("btrfs", "subvolume", "delete", cowPath);
-                return result.ExitCode == 0;
+                Directory.Delete(cowPath, true);
+                return Task.FromResult(true);
             }
             else
             {
                 Directory.Delete(cowPath, true);
-                return true;
+                return Task.FromResult(true);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to remove CoW clone at {CowPath}", cowPath);
-            return false;
+            return Task.FromResult(false);
         }
     }
 
@@ -858,10 +856,10 @@ public class CowRepositoryService : IRepositoryService
                     }
                     break;
                 case "btrfs":
-                    if (await TestBtrfsSupportAsync())
+                    if (await TestReflinkSupportAsync())
                     {
-                        _cowMethod = CowMethod.BtrfsSnapshot;
-                        _logger.LogInformation("Using Btrfs snapshots for CoW operations");
+                        _cowMethod = CowMethod.BtrfsReflink;
+                        _logger.LogInformation("Using Btrfs reflink for CoW operations");
                     }
                     break;
             }
@@ -924,18 +922,6 @@ public class CowRepositoryService : IRepositoryService
         }
     }
 
-    private async Task<bool> TestBtrfsSupportAsync()
-    {
-        try
-        {
-            var result = await ExecuteCommandAsync("btrfs", "filesystem", "show");
-            return result.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     private async Task CreateReflinkCloneAsync(string sourcePath, string targetPath)
     {
@@ -957,55 +943,6 @@ public class CowRepositoryService : IRepositoryService
         }
     }
 
-    private async Task CreateBtrfsSnapshotAsync(string sourcePath, string targetPath)
-    {
-        // If target already exists, remove it first to avoid permission issues
-        if (Directory.Exists(targetPath))
-        {
-            Directory.Delete(targetPath, true);
-        }
-        
-        // For Btrfs snapshots, we need to create the snapshot and then copy its contents
-        // to avoid nested directory structure
-        var tempSnapshotPath = $"{targetPath}_temp_snapshot";
-        
-        try
-        {
-            // Create Btrfs snapshot
-            var snapshotResult = await ExecuteCommandAsync("btrfs", "subvolume", "snapshot", sourcePath, tempSnapshotPath);
-            if (snapshotResult.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"Failed to create Btrfs snapshot: {snapshotResult.Error}");
-            }
-            
-            // Create target directory and copy contents
-            Directory.CreateDirectory(targetPath);
-            var copyResult = await ExecuteCommandAsync("cp", "-r", $"{tempSnapshotPath}/.", targetPath);
-            if (copyResult.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"Failed to copy snapshot contents: {copyResult.Error}");
-            }
-            
-            // Clean up temporary snapshot
-            await ExecuteCommandAsync("btrfs", "subvolume", "delete", tempSnapshotPath);
-        }
-        catch
-        {
-            // Clean up temporary snapshot on error
-            if (Directory.Exists(tempSnapshotPath))
-            {
-                try
-                {
-                    await ExecuteCommandAsync("btrfs", "subvolume", "delete", tempSnapshotPath);
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logger.LogWarning(cleanupEx, "Failed to clean up temporary snapshot at {Path}", tempSnapshotPath);
-                }
-            }
-            throw;
-        }
-    }
 
     private async Task CreateHardlinkCloneAsync(string sourcePath, string targetPath)
     {
@@ -1132,6 +1069,6 @@ public enum CowMethod
     Unsupported,
     XfsReflink,
     Ext4Reflink,
-    BtrfsSnapshot,
+    BtrfsReflink,
     HardlinkFallback
 }

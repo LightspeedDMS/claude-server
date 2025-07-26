@@ -16,6 +16,7 @@ public interface IClaudeCodeExecutor
     Task<(int ExitCode, string Output)> ExecuteAsync(Job job, string username, IJobStatusCallback? statusCallback, CancellationToken cancellationToken);
     Task<string> GenerateJobTitleAsync(string prompt, string? repositoryPath = null, CancellationToken cancellationToken = default);
     Task<(int ExitCode, string Output)> StopCidxAsync(string workspacePath, string username, CancellationToken cancellationToken = default);
+    Task<(int ExitCode, string Output)> UninstallCidxAsync(string workspacePath, string username, CancellationToken cancellationToken = default);
     
     // PID monitoring and job recovery methods
     bool IsProcessRunning(int processId);
