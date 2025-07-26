@@ -1460,6 +1460,8 @@ build_web_ui() {
     if sudo systemctl is-active --quiet claude-batch-server 2>/dev/null; then
         service_was_running=true
         log "Claude Batch Server service is running, stopping for deployment..."
+        # Reload systemd in case service file was updated
+        sudo systemctl daemon-reload
         sudo systemctl stop claude-batch-server
     fi
     
@@ -1510,6 +1512,8 @@ build_web_ui() {
     # Restart service if it was running
     if [[ "$service_was_running" == "true" ]]; then
         log "Restarting Claude Batch Server service..."
+        # Reload systemd in case service file was updated during deployment
+        sudo systemctl daemon-reload
         sudo systemctl start claude-batch-server
         
         # Wait a moment and verify service started

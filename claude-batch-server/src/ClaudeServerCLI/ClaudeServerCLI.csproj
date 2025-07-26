@@ -13,7 +13,15 @@
     <PackageDescription>CLI for Claude Batch Server API</PackageDescription>
     <Authors>Claude Server Team</Authors>
     <Company>Claude Server</Company>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Suppress trimming warnings from third-party libraries and packaging warnings -->
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <NoWarn>$(NoWarn);IL2104;NU5128</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
