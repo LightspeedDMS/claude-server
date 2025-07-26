@@ -1769,52 +1769,49 @@ print_usage() {
     [ -n "$external_ip" ] && printf -- "- External IP: %b%s%b\n" "$BLUE" "$external_ip" "$NC"
     printf -- "- Local Access: %bhttp://localhost%s%b\n\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo " (redirects to HTTPS)")" "$NC"
     
+    printf "\n%b🚀 Essential Setup Steps:%b\n\n" "$YELLOW" "$NC"
+    printf "1. %bSet up Claude CLI Authentication:%b\n" "$BLUE" "$NC"
+    printf "   %bclaude /login%b\n" "$BLUE" "$NC"
+    printf "   %b# Complete Claude AI authentication in your browser%b\n\n" "$GREEN" "$NC"
+    
+    printf "2. %bConfigure Claude CLI permissions:%b\n" "$BLUE" "$NC"
+    printf "   %bclaude --dangerously-skip-permissions%b\n" "$BLUE" "$NC"
+    printf "   %b# This allows Claude CLI to work in server environments%b\n\n" "$GREEN" "$NC"
+    
+    printf "3. %bCopy and configure server environment:%b\n" "$BLUE" "$NC"
+    printf "   %bcp %s/docker/.env.example /etc/claude-batch-server.env%b\n" "$BLUE" "$PROJECT_DIR" "$NC"
+    printf "   %bsudo nano /etc/claude-batch-server.env%b\n\n" "$BLUE" "$NC"
+    
+    printf "4. %bStart the Claude Batch Server:%b\n" "$BLUE" "$NC"
+    printf "   %bsudo systemctl start claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "5. %bVerify service is running:%b\n" "$BLUE" "$NC"
+    printf "   %bsudo systemctl status claude-batch-server%b\n\n" "$BLUE" "$NC"
+
+    printf "%b🏃 How to Run Claude Batch Server:%b\n\n" "$YELLOW" "$NC"
+    printf "%bOption 1: Systemd Service (Recommended for Production)%b\n" "$BLUE" "$NC"
+    printf "The installation has created a systemd service for you:\n\n"
+    
+    printf "• Start the service:\n"
+    printf "  %bsudo systemctl start claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "• Enable auto-start on boot:\n"
+    printf "  %bsudo systemctl enable claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "• Check service status:\n"
+    printf "  %bsudo systemctl status claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "• View service logs:\n"
+    printf "  %bsudo journalctl -u claude-batch-server -f%b\n\n" "$BLUE" "$NC"
+    
+    printf "• Stop the service:\n"
+    printf "  %bsudo systemctl stop claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "• Restart the service:\n"
+    printf "  %bsudo systemctl restart claude-batch-server%b\n\n" "$BLUE" "$NC"
+
     cat << EOF
-
-${YELLOW}🚀 Essential Setup Steps:${NC}
-
-1. ${BLUE}Set up Claude CLI Authentication:${NC}
-   ${BLUE}claude /login${NC}
-   ${GREEN}# Complete Claude AI authentication in your browser${NC}
-
-2. ${BLUE}Configure Claude CLI permissions:${NC}
-   ${BLUE}claude --dangerously-skip-permissions${NC}
-   ${GREEN}# This allows Claude CLI to work in server environments${NC}
-
-3. ${BLUE}Copy and configure server environment:${NC}
-   ${BLUE}cp $PROJECT_DIR/docker/.env.example /etc/claude-batch-server.env${NC}
-   ${BLUE}sudo nano /etc/claude-batch-server.env${NC}
-   
-4. ${BLUE}Start the Claude Batch Server:${NC}
-   ${BLUE}sudo systemctl start claude-batch-server${NC}
-   
-5. ${BLUE}Verify service is running:${NC}
-   ${BLUE}sudo systemctl status claude-batch-server${NC}
-
-${YELLOW}🏃 How to Run Claude Batch Server:${NC}
-
-${BLUE}Option 1: Systemd Service (Recommended for Production)${NC}
-The installation has created a systemd service for you:
-
-• Start the service:
-  ${BLUE}sudo systemctl start claude-batch-server${NC}
-
-• Enable auto-start on boot:
-  ${BLUE}sudo systemctl enable claude-batch-server${NC}
-
-• Check service status:
-  ${BLUE}sudo systemctl status claude-batch-server${NC}
-
-• View service logs:
-  ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
-
-• Stop the service:
-  ${BLUE}sudo systemctl stop claude-batch-server${NC}
-
-• Restart the service:
-  ${BLUE}sudo systemctl restart claude-batch-server${NC}
-
-${BLUE}Option 2: Docker Compose (Alternative)${NC}
+$(echo -e "${BLUE}Option 2: Docker Compose (Alternative)${NC}")
 If you prefer containerized deployment:
 
 • Navigate to project directory:
