@@ -11,7 +11,40 @@ namespace ClaudeServerCLI.Commands;
 
 public class JobsCommand : Command
 {
-    public JobsCommand() : base("jobs", "Job management commands")
+    public JobsCommand() : base("jobs", """
+        Job management commands for Claude Code batch processing
+        
+        Create, monitor, and manage AI-powered batch jobs that operate on registered
+        repositories. Jobs run Claude Code with your prompts in isolated Copy-on-Write
+        repository clones.
+        
+        JOB LIFECYCLE:
+          1. Create job with repository and prompt
+          2. Start job execution (or use --start flag)
+          3. Monitor progress with logs/status
+          4. Review results and output files
+          5. Delete completed jobs to free resources
+        
+        EXAMPLES:
+          # Create and start a job
+          claude-server jobs create --repo myproject --prompt "Add unit tests" --start
+          
+          # List all jobs
+          claude-server jobs list
+          claude-server jobs list --status running --watch
+          
+          # Monitor a specific job
+          claude-server jobs show abc123 --follow
+          claude-server jobs logs abc123 --follow
+          
+          # Manage job lifecycle
+          claude-server jobs start abc123
+          claude-server jobs cancel abc123
+          claude-server jobs delete abc123
+          
+          # Advanced job creation
+          claude-server jobs create --repo myproject --prompt "Analyze security" --git-aware --cidx-aware --timeout 3600
+        """)
     {
         AddCommand(new JobsListCommand());
         AddCommand(new EnhancedJobsCreateCommand()); // Use enhanced version
@@ -31,33 +64,61 @@ public class JobsListCommand : AuthenticatedCommand
     private readonly Option<string> _repositoryOption;
     private readonly Option<int> _limitOption;
 
-    public JobsListCommand() : base("list", "List all jobs")
+    public JobsListCommand() : base("list", """
+        List all batch jobs with filtering and real-time monitoring
+        
+        Shows job status, repository, creation time, and execution details.
+        Supports filtering by status and repository, with various output formats.
+        
+        EXAMPLES:
+          # List all jobs
+          claude-server jobs list
+          
+          # Filter by status
+          claude-server jobs list --status running
+          claude-server jobs list --status completed
+          claude-server jobs list --status failed
+          
+          # Filter by repository
+          claude-server jobs list --repository myproject
+          
+          # Limit results
+          claude-server jobs list --limit 10
+          
+          # Watch for real-time updates
+          claude-server jobs list --watch
+          claude-server jobs list --status running --watch
+          
+          # Export as JSON/YAML
+          claude-server jobs list --format json
+          claude-server jobs list --format yaml
+        """)
     {
         _formatOption = new Option<string>(
             aliases: ["--format", "-f"],
-            description: "Output format (table, json, yaml)",
+            description: "Output format: 'table' (human-readable), 'json' (machine-readable), 'yaml' (structured)",
             getDefaultValue: () => "table"
         );
 
         _watchOption = new Option<bool>(
             aliases: ["--watch", "-w"],
-            description: "Watch for changes and update display in real-time",
+            description: "Watch for changes and refresh display every 2 seconds. Press Ctrl+C to exit.",
             getDefaultValue: () => false
         );
 
         _statusOption = new Option<string>(
             aliases: ["--status", "-s"],
-            description: "Filter by job status (running, completed, failed, cancelled, pending)"
+            description: "Filter by job status: 'pending', 'running', 'completed', 'failed', 'cancelled'"
         );
 
         _repositoryOption = new Option<string>(
             aliases: ["--repository", "--repo", "-r"],
-            description: "Filter by repository name"
+            description: "Filter jobs by repository name. Shows only jobs for the specified repository."
         );
 
         _limitOption = new Option<int>(
             aliases: ["--limit", "-l"],
-            description: "Limit number of results",
+            description: "Maximum number of jobs to display. Useful for large job lists.",
             getDefaultValue: () => 50
         );
 

@@ -30,7 +30,43 @@ class Program
 
     private static RootCommand BuildRootCommand(IServiceProvider serviceProvider)
     {
-        var rootCommand = new RootCommand("Claude Batch Server CLI - Command-line interface for managing Claude Code batch jobs")
+        var rootCommand = new RootCommand("""
+            Claude Batch Server CLI - Advanced command-line interface for managing Claude Code batch jobs
+            
+            Manage repositories, create and monitor AI-powered batch jobs, handle authentication,
+            and control your Claude Code workflow from the command line.
+            
+            QUICK START:
+              claude-server auth login -u username -p password
+              claude-server repos create my-repo https://github.com/user/repo.git
+              claude-server jobs create --repo my-repo --prompt "Analyze this codebase"
+              claude-server jobs list --watch
+            
+            AUTHENTICATION:
+              Most commands require authentication. Use 'claude-server auth login' first.
+              Credentials are stored in profiles (default: 'default').
+            
+            EXAMPLES:
+              # Authentication
+              claude-server auth login -u admin -p mypassword
+              claude-server auth whoami
+              
+              # Repository management
+              claude-server repos list
+              claude-server repos create myrepo https://github.com/user/repo.git --cidx
+              claude-server repos show myrepo
+              
+              # Job management  
+              claude-server jobs create --repo myrepo --prompt "Add unit tests"
+              claude-server jobs list --status running --watch
+              claude-server jobs show abc123 --follow
+              
+              # Output formats
+              claude-server repos list --format json
+              claude-server jobs list --format yaml
+            
+            For detailed help on any command, use: claude-server <command> --help
+            """)
         {
             Name = "claude-server"
         };
@@ -55,17 +91,17 @@ class Program
         // Add global options
         var verboseOption = new Option<bool>(
             aliases: ["--verbose", "-v"],
-            description: "Enable verbose logging"
+            description: "Enable verbose logging and detailed output for debugging"
         );
         
         var serverUrlOption = new Option<string>(
             aliases: ["--server-url", "--url"],
-            description: "Server URL to connect to (overrides profile setting)"
+            description: "Claude Batch Server URL (e.g., https://localhost:8443). Overrides profile setting."
         );
         
         var timeoutOption = new Option<int>(
             aliases: ["--timeout", "-t"],
-            description: "Request timeout in seconds",
+            description: "HTTP request timeout in seconds. Increase for long-running operations.",
             getDefaultValue: () => 30
         );
 

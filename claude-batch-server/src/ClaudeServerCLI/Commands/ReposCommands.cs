@@ -12,7 +12,36 @@ namespace ClaudeServerCLI.Commands;
 
 public class ReposCommand : Command
 {
-    public ReposCommand() : base("repos", "Repository management commands")
+    public ReposCommand() : base("repos", """
+        Repository management commands
+        
+        Manage Git repositories for Claude Code batch processing. Repositories are cloned
+        and optionally indexed with CIDX for semantic code search capabilities.
+        
+        WORKFLOW:
+          1. Register a repository from a Git URL
+          2. Repository is cloned and optionally indexed with CIDX
+          3. Create jobs that operate on the repository
+          4. Jobs run in Copy-on-Write clones for isolation
+        
+        EXAMPLES:
+          # List all repositories
+          claude-server repos list
+          claude-server repos list --format json
+          
+          # Register a new repository
+          claude-server repos create myproject https://github.com/user/project.git
+          claude-server repos create myproject https://github.com/user/project.git --no-cidx
+          
+          # View repository details
+          claude-server repos show myproject
+          
+          # Remove a repository
+          claude-server repos delete myproject
+          
+          # Watch repository list in real-time
+          claude-server repos list --watch
+        """)
     {
         AddCommand(new ReposListCommand());
         AddCommand(new ReposCreateCommand());
@@ -26,17 +55,38 @@ public class ReposListCommand : AuthenticatedCommand
     private readonly Option<string> _formatOption;
     private readonly Option<bool> _watchOption;
 
-    public ReposListCommand() : base("list", "List all repositories")
+    public ReposListCommand() : base("list", """
+        List all registered repositories with their status and metadata
+        
+        Shows repository name, status, type (git/folder), size, Git metadata,
+        and CIDX indexing status in various output formats.
+        
+        EXAMPLES:
+          # List all repositories in table format
+          claude-server repos list
+          
+          # Export repository list as JSON
+          claude-server repos list --format json
+          
+          # Export repository list as YAML
+          claude-server repos list --format yaml
+          
+          # Watch repository list for real-time updates
+          claude-server repos list --watch
+          
+          # Combine watch mode with JSON output
+          claude-server repos list --watch --format json
+        """)
     {
         _formatOption = new Option<string>(
             aliases: ["--format", "-f"],
-            description: "Output format (table, json, yaml)",
+            description: "Output format: 'table' (human-readable), 'json' (machine-readable), 'yaml' (structured)",
             getDefaultValue: () => "table"
         );
 
         _watchOption = new Option<bool>(
             aliases: ["--watch", "-w"],
-            description: "Watch for changes and update display in real-time",
+            description: "Watch for changes and refresh display every 2 seconds. Press Ctrl+C to exit.",
             getDefaultValue: () => false
         );
 

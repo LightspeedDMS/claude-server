@@ -7,7 +7,28 @@ namespace ClaudeServerCLI.Commands;
 
 public class AuthCommand : Command
 {
-    public AuthCommand() : base("auth", "Authentication commands")
+    public AuthCommand() : base("auth", """
+        Authentication and profile management commands
+        
+        Manage user authentication, login sessions, and profile configurations.
+        Profiles store server URLs and authentication tokens for different environments.
+        
+        EXAMPLES:
+          # Login with username and password
+          claude-server auth login -u admin -p mypassword
+          
+          # Login to a specific profile
+          claude-server auth login -u admin -p mypassword --profile production
+          
+          # Check current authentication status
+          claude-server auth whoami
+          
+          # Logout from current profile
+          claude-server auth logout
+          
+          # Logout from specific profile
+          claude-server auth logout --profile production
+        """)
     {
         AddCommand(new LoginCommand());
         AddCommand(new LogoutCommand());
@@ -22,27 +43,42 @@ public class LoginCommand : BaseCommand
     private readonly Option<string> _profileOption;
     private readonly Option<bool> _hashedPasswordOption;
 
-    public LoginCommand() : base("login", "Login to the Claude Batch Server")
+    public LoginCommand() : base("login", """
+        Login to the Claude Batch Server with username and password
+        
+        Authenticates with the Claude Batch Server and stores the session token
+        in the specified profile for subsequent commands.
+        
+        EXAMPLES:
+          # Basic login
+          claude-server auth login -u admin -p mypassword
+          
+          # Login to specific profile/environment
+          claude-server auth login -u admin -p mypassword --profile staging
+          
+          # Login with pre-hashed password
+          claude-server auth login -u admin -p $2b$12$hashedpassword --hashed
+        """)
     {
         _usernameOption = new Option<string>(
             aliases: ["--username", "--usr", "-u"],
-            description: "Username for authentication"
+            description: "Username for authentication. Must match a user in the server's user database."
         ) { IsRequired = true };
 
         _passwordOption = new Option<string>(
             aliases: ["--password", "--pwd", "-p"],
-            description: "Password for authentication"
+            description: "Password for authentication. Use --hashed if providing a pre-hashed password."
         ) { IsRequired = true };
 
         _profileOption = new Option<string>(
             aliases: ["--profile", "-prof"],
-            description: "Profile name to store credentials under",
+            description: "Profile name to store credentials under. Allows multiple server configurations.",
             getDefaultValue: () => "default"
         );
 
         _hashedPasswordOption = new Option<bool>(
             aliases: ["--hashed", "-h"],
-            description: "Indicates that the provided password is already hashed",
+            description: "Indicates the password is already bcrypt hashed (for scripting/automation).",
             getDefaultValue: () => false
         );
 
