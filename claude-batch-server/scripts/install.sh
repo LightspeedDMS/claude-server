@@ -298,14 +298,71 @@ dry_run_analyze_dotnet() {
 dry_run_analyze_workspace() {
     echo -e "$(echo -e "${BLUE}=== Workspace & Application Analysis ===${NC}")"
     
+    # Enhanced workspace analysis with btrfs detection
+    dry_run_check "Analyzing current workspace CoW support"
+    local current_cow_support=$(check_current_cow_support "/workspace")
+    local workspace_fs_type=$(df -T / 2>/dev/null | tail -1 | awk '{print $2}')
+    
+    case "$current_cow_support" in
+        "optimal")
+            dry_run_result "✓ Current workspace has optimal btrfs CoW support"
+            ;;
+        "good")
+            dry_run_result "✓ Current workspace has good CoW support ($workspace_fs_type with reflink)"
+            ;;
+        "limited")
+            dry_run_result "⚠ Current workspace has limited CoW support ($workspace_fs_type)"
+            dry_run_action "Performance may be suboptimal - consider dedicated btrfs volume"
+            ;;
+        "none")
+            dry_run_result "✗ Current workspace has NO CoW support ($workspace_fs_type)"
+            dry_run_action "Performance will be suboptimal - strongly recommend dedicated btrfs volume"
+            ;;
+    esac
+    
+    # Detect empty disks for potential btrfs workspace
+    dry_run_check "Detecting empty disks for dedicated btrfs workspace"
+    local empty_disks_info=($(detect_empty_disks))
+    
+    if [[ ${#empty_disks_info[@]} -gt 0 ]]; then
+        dry_run_result "✓ Found ${#empty_disks_info[@]} empty disk(s) suitable for btrfs:"
+        for disk_info in "${empty_disks_info[@]}"; do
+            local disk=$(echo "$disk_info" | cut -d: -f1)
+            local size=$(echo "$disk_info" | cut -d: -f2)
+            dry_run_result "  • $disk ($size)"
+        done
+        
+        if [[ "$current_cow_support" != "optimal" ]]; then
+            dry_run_action "OPTION: Format empty disk for dedicated btrfs workspace"
+            dry_run_action "  1. Partition and format disk with btrfs"
+            dry_run_action "  2. Mount at /claude-workspace"
+            dry_run_action "  3. Add to /etc/fstab for persistence"
+            dry_run_action "  4. Update appsettings.json workspace paths"
+            dry_run_action "  5. Install btrfs-progs tools"
+        fi
+    else
+        dry_run_result "✗ No empty disks detected for dedicated btrfs workspace"
+        if [[ "$current_cow_support" == "none" || "$current_cow_support" == "limited" ]]; then
+            dry_run_action "Consider adding dedicated storage for optimal performance"
+        fi
+    fi
+    
+    # Standard workspace directory checks
     dry_run_check "Checking workspace directories"
-    for dir in "/workspace" "/workspace/repos" "/workspace/jobs" "/var/log/claude-batch-server"; do
-        if [[ -d "$dir" ]]; then
-            dry_run_result "✓ Directory exists: $dir"
+    local workspace_base="/workspace"
+    if [[ ${#empty_disks_info[@]} -gt 0 && "$current_cow_support" != "optimal" ]]; then
+        workspace_base="/claude-workspace (if btrfs volume created)"
+    fi
+    
+    for dir in "$workspace_base" "$workspace_base/repos" "$workspace_base/jobs" "/var/log/claude-batch-server"; do
+        # Check if directory would exist after installation
+        local actual_dir=$(echo "$dir" | sed 's| (if btrfs volume created)||')
+        if [[ -d "$actual_dir" ]]; then
+            dry_run_result "✓ Directory exists: $actual_dir"
         else
-            dry_run_result "✗ Directory missing: $dir"
-            dry_run_action "Create directory: sudo mkdir -p $dir"
-            dry_run_action "Set permissions: sudo chmod 755 $dir"
+            dry_run_result "✗ Directory missing: $actual_dir"
+            dry_run_action "Create directory: sudo mkdir -p $actual_dir"
+            dry_run_action "Set permissions: sudo chmod 755 $actual_dir"
         fi
     done
     
@@ -317,6 +374,60 @@ dry_run_analyze_workspace() {
     else
         dry_run_result "✗ API project file not found"
         dry_run_action "Exit with error - project files missing"
+    fi
+    
+    dry_run_check "Checking Voyage AI API key configuration"
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    local config_key=""
+    local env_key="$VOYAGE_API_KEY"
+    local shell_key=""
+    
+    # Check each location
+    if [[ -f "$config_file" ]]; then
+        config_key=$(jq -r '.Cidx.VoyageApiKey // empty' "$config_file" 2>/dev/null)
+    fi
+    if grep -q "VOYAGE_API_KEY" "$HOME/.bashrc" 2>/dev/null; then
+        shell_key=$(grep "VOYAGE_API_KEY" "$HOME/.bashrc" | head -1 | cut -d'"' -f2 2>/dev/null)
+    fi
+    
+    # Determine if we have a valid key anywhere
+    local found_key=""
+    if validate_voyage_api_key "$config_key"; then
+        found_key="$config_key"
+    elif validate_voyage_api_key "$env_key"; then
+        found_key="$env_key"
+    elif validate_voyage_api_key "$shell_key"; then
+        found_key="$shell_key"
+    fi
+    
+    if [[ -n "$found_key" ]]; then
+        dry_run_result "✓ Voyage AI API key found"
+        
+        # Check sync status
+        local needs_sync=false
+        if [[ "$config_key" != "$found_key" ]]; then
+            dry_run_action "Sync key to appsettings.json"
+            needs_sync=true
+        fi
+        if [[ "$env_key" != "$found_key" ]]; then
+            dry_run_action "Set VOYAGE_API_KEY environment variable"
+            needs_sync=true
+        fi
+        if [[ "$shell_key" != "$found_key" ]]; then
+            dry_run_action "Sync key to shell configuration"
+            needs_sync=true
+        fi
+        
+        if [[ "$needs_sync" == "false" ]]; then
+            dry_run_result "  All locations synchronized"
+        fi
+    else
+        dry_run_result "✗ Voyage AI API key not found in any location"
+        dry_run_action "Prompt user for Voyage AI API key"
+        dry_run_action "Store key in appsettings.json: Cidx.VoyageApiKey"
+        dry_run_action "Add key to shell configuration: ~/.bashrc"
+        dry_run_action "Export VOYAGE_API_KEY for current session"
+        dry_run_result "  Note: CIDX will use fallback embedding provider without valid key"
     fi
     
     dry_run_check "Checking systemd service"
@@ -1255,38 +1366,505 @@ install_code_indexer() {
     fi
 }
 
+# Detect empty/unpartitioned disks suitable for btrfs
+detect_empty_disks() {
+    local empty_disks=()
+    
+    # Find all block devices that are disks (not partitions)
+    while IFS= read -r line; do
+        local device=$(echo "$line" | awk '{print $1}')
+        local type=$(echo "$line" | awk '{print $2}')
+        local fstype=$(echo "$line" | awk '{print $3}')
+        local size=$(echo "$line" | awk '{print $4}')
+        
+        # Only consider actual disks (not loop devices, etc.) that are empty
+        if [[ "$type" == "disk" && -z "$fstype" && "$device" =~ ^/dev/(sd|nvme|vd) ]]; then
+            # Verify it's truly empty by checking for partitions
+            if ! lsblk "$device" -no TYPE | grep -q "part"; then
+                # Convert size to GB for better display
+                local size_gb=$(echo "$size" | sed 's/G.*//' | awk '{printf "%.0fGB", $1}')
+                empty_disks+=("$device:$size_gb")
+            fi
+        fi
+    done < <(lsblk -dpno NAME,TYPE,FSTYPE,SIZE 2>/dev/null)
+    
+    printf '%s\n' "${empty_disks[@]}"
+}
+
+# Check if current workspace location supports CoW
+check_current_cow_support() {
+    local workspace_path="${1:-/workspace}"
+    
+    # Create workspace if it doesn't exist (skip in dry-run mode)
+    if [[ ! -d "$workspace_path" && "$DRY_RUN_MODE" != "true" ]]; then
+        sudo mkdir -p "$workspace_path"
+    fi
+    
+    # Get filesystem type (use parent directory if workspace doesn't exist)
+    local check_path="$workspace_path"
+    if [[ ! -d "$workspace_path" ]]; then
+        check_path=$(dirname "$workspace_path")
+    fi
+    
+    local fs_type=$(df -T "$check_path" 2>/dev/null | tail -1 | awk '{print $2}')
+    
+    case "$fs_type" in
+        "btrfs")
+            echo "optimal"
+            ;;
+        "xfs"|"ext4")
+            # Test reflink support (skip actual test in dry-run mode)
+            if [[ "$DRY_RUN_MODE" == "true" ]]; then
+                echo "good"  # Assume good support for dry-run
+            elif test_cow_support_at_path "$check_path"; then
+                echo "good"
+            else
+                echo "limited"
+            fi
+            ;;
+        *)
+            echo "none"
+            ;;
+    esac
+}
+
+# Test reflink support at specific path
+test_cow_support_at_path() {
+    local test_path="$1"
+    local test_dir="$test_path/.cow-test-$$"
+    
+    sudo mkdir -p "$test_dir" 2>/dev/null || return 1
+    
+    # Create test file
+    sudo dd if=/dev/zero of="$test_dir/test1" bs=1M count=1 2>/dev/null || {
+        sudo rm -rf "$test_dir" 2>/dev/null
+        return 1
+    }
+    
+    # Try reflink copy
+    if sudo cp --reflink=always "$test_dir/test1" "$test_dir/test2" 2>/dev/null; then
+        sudo rm -rf "$test_dir" 2>/dev/null
+        return 0
+    else
+        sudo rm -rf "$test_dir" 2>/dev/null
+        return 1
+    fi
+}
+
+# Simplified workspace explanation
+explain_workspace_requirements() {
+    log "WORKSPACE CONFIGURATION"
+    log ""
+    log "Claude Batch Server requires:"
+    log "• Repository storage (/workspace/repos)"  
+    log "• Job execution environments (/workspace/jobs)"
+    log "• Copy-on-Write (CoW) for efficient repository cloning"
+    log ""
+    log "Filesystem performance impact:"
+    log "• btrfs: Instant CoW snapshots"
+    log "• XFS/ext4 with reflink: Fast CoW copies"  
+    log "• Other filesystems: Slow directory copies"
+    log ""
+}
+
+# Update appsettings.json with new workspace path
+update_workspace_config() {
+    local workspace_path="$1"
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    
+    if [[ -f "$config_file" ]]; then
+        # Update existing config
+        sudo jq --arg repos_path "$workspace_path/repos" \
+               --arg jobs_path "$workspace_path/jobs" \
+               '.Workspace.RepositoriesPath = $repos_path | .Workspace.JobsPath = $jobs_path' \
+               "$config_file" > /tmp/appsettings.json.tmp && \
+        sudo mv /tmp/appsettings.json.tmp "$config_file"
+        log "Updated workspace configuration to use $workspace_path"
+    fi
+}
+
+# Create dedicated btrfs workspace
+create_btrfs_workspace() {
+    local disk="$1"
+    local workspace_path="/claude-workspace"
+    
+    log "Creating btrfs workspace on $disk..."
+    
+    # Install btrfs-progs
+    case "$OS_ID" in
+        "rocky"|"rhel"|"centos")
+            sudo dnf install -y btrfs-progs parted
+            ;;
+        "ubuntu")
+            sudo apt-get update && sudo apt-get install -y btrfs-progs parted
+            ;;
+    esac
+    
+    # Format disk
+    log "Formatting $disk with btrfs..."
+    sudo parted "$disk" --script mklabel gpt
+    sudo parted "$disk" --script mkpart primary btrfs 0% 100%
+    sudo mkfs.btrfs "${disk}1" -f -L "claude-workspace"
+    
+    # Mount workspace
+    sudo mkdir -p "$workspace_path"
+    sudo mount "${disk}1" "$workspace_path"
+    
+    # Add to fstab
+    local uuid=$(sudo blkid -s UUID -o value "${disk}1")
+    echo "UUID=$uuid $workspace_path btrfs defaults,compress=zstd,noatime 0 0" | sudo tee -a /etc/fstab
+    
+    # Create directories
+    sudo mkdir -p "$workspace_path"/{repos,jobs}
+    sudo chown -R "$current_user:$current_group" "$workspace_path"
+    sudo chmod 755 "$workspace_path" "$workspace_path"/{repos,jobs}
+    
+    # Update configuration
+    update_workspace_config "$workspace_path"
+    
+    log "✓ Btrfs workspace created at $workspace_path"
+    return 0
+}
+
+# Interactive workspace setup workflow
+setup_workspace_interactively() {
+    # Skip interactive prompts in dry-run mode
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        return 0
+    fi
+    
+    explain_workspace_requirements
+    
+    log "Analyzing current storage configuration..."
+    
+    # Check current workspace CoW support
+    local current_cow_support=$(check_current_cow_support "/workspace")
+    
+    case "$current_cow_support" in
+        "optimal")
+            log "✓ Current workspace (/workspace) has optimal btrfs CoW support"
+            return 0
+            ;;
+        "good")
+            log "✓ Current workspace (/workspace) has good CoW support (XFS/ext4 reflink)"
+            ;;
+        "limited")
+            log "⚠ Current workspace (/workspace) has limited CoW support"
+            ;;
+        "none")
+            log "✗ Current workspace (/workspace) has NO CoW support"
+            ;;
+    esac
+    
+    # Detect empty disks
+    local empty_disks_info=($(detect_empty_disks))
+    
+    if [[ ${#empty_disks_info[@]} -eq 0 ]]; then
+        log "No empty disks detected for dedicated btrfs volume."
+        if [[ "$current_cow_support" == "none" || "$current_cow_support" == "limited" ]]; then
+            warn "Performance will be suboptimal without proper CoW support."
+        fi
+        return 0
+    fi
+    
+    # Present options to user
+    echo
+    log "WORKSPACE SETUP OPTIONS:"
+    echo
+    echo "Current status: /workspace ($current_cow_support CoW support)"
+    echo
+    echo "Available empty disks for dedicated btrfs workspace:"
+    
+    local disk_options=()
+    local i=1
+    for disk_info in "${empty_disks_info[@]}"; do
+        local disk=$(echo "$disk_info" | cut -d: -f1)
+        local size=$(echo "$disk_info" | cut -d: -f2)
+        echo "  $i) $disk ($size) - Create dedicated btrfs workspace"
+        disk_options+=("$disk")
+        ((i++))
+    done
+    
+    echo "  $i) Keep current workspace (/workspace)"
+    echo
+    
+    while true; do
+        echo -n "Choose option [1-$i]: "
+        read -r choice
+        
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 && "$choice" -le "$i" ]]; then
+            if [[ "$choice" -eq "$i" ]]; then
+                log "Keeping current workspace configuration"
+                return 0
+            else
+                local selected_disk="${disk_options[$((choice-1))]}"
+                local disk_size=$(echo "${empty_disks_info[$((choice-1))]}" | cut -d: -f2)
+                
+                echo
+                warn "⚠  WARNING: This will PERMANENTLY FORMAT disk $selected_disk ($disk_size)"
+                warn "⚠  ALL DATA on this disk will be LOST!"
+                echo
+                echo -n "Type 'YES' to confirm formatting $selected_disk: "
+                read -r confirmation
+                
+                if [[ "$confirmation" == "YES" ]]; then
+                    create_btrfs_workspace "$selected_disk"
+                    return $?
+                else
+                    log "Disk formatting cancelled"
+                    continue
+                fi
+            fi
+        else
+            echo "Invalid choice. Please enter a number between 1 and $i."
+        fi
+    done
+}
+
+# Check if Voyage AI API key is configured
+check_voyage_api_key() {
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    local key_from_config=""
+    local key_from_env=""
+    
+    # Check configuration file
+    if [[ -f "$config_file" ]]; then
+        key_from_config=$(jq -r '.Cidx.VoyageApiKey // empty' "$config_file" 2>/dev/null)
+    fi
+    
+    # Check environment variable
+    key_from_env="$VOYAGE_API_KEY"
+    
+    # Check shell configuration files
+    local key_from_shell=""
+    for shell_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+        if [[ -f "$shell_file" ]] && grep -q "VOYAGE_API_KEY" "$shell_file"; then
+            key_from_shell=$(grep "VOYAGE_API_KEY" "$shell_file" | head -1 | cut -d'"' -f2 2>/dev/null)
+            break
+        fi
+    done
+    
+    # Return best available key
+    if [[ -n "$key_from_config" && "$key_from_config" != "your-voyage-ai-api-key-here" ]]; then
+        echo "$key_from_config"
+    elif [[ -n "$key_from_env" ]]; then
+        echo "$key_from_env"
+    elif [[ -n "$key_from_shell" ]]; then
+        echo "$key_from_shell"
+    else
+        echo ""
+    fi
+}
+
+# Validate Voyage AI API key format
+validate_voyage_api_key() {
+    local key="$1"
+    
+    # Check if key is provided
+    if [[ -z "$key" ]]; then
+        return 1
+    fi
+    
+    # Check if key is placeholder
+    if [[ "$key" == "your-voyage-ai-api-key-here" ]]; then
+        return 1
+    fi
+    
+    # Check key format (Voyage AI keys typically start with "pa-")
+    if [[ "$key" =~ ^pa-[A-Za-z0-9]{40,}$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Store Voyage AI API key in configuration
+store_voyage_api_key() {
+    local api_key="$1"
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    
+    # Update appsettings.json
+    if [[ -f "$config_file" ]]; then
+        log "Updating Voyage AI API key in $config_file"
+        sudo jq --arg key "$api_key" '.Cidx.VoyageApiKey = $key' "$config_file" > /tmp/appsettings.json.tmp && \
+        sudo mv /tmp/appsettings.json.tmp "$config_file"
+    fi
+    
+    # Add to shell configuration for terminal sessions
+    local shell_file="$HOME/.bashrc"
+    if [[ -f "$shell_file" ]]; then
+        # Remove existing VOYAGE_API_KEY export if present
+        if grep -q "VOYAGE_API_KEY" "$shell_file"; then
+            sed -i '/export VOYAGE_API_KEY=/d' "$shell_file"
+        fi
+        
+        # Add new export
+        echo "export VOYAGE_API_KEY=\"$api_key\"" >> "$shell_file"
+        log "Added VOYAGE_API_KEY to $shell_file"
+        
+        # Export for current session
+        export VOYAGE_API_KEY="$api_key"
+    fi
+}
+
+# Prompt user for Voyage AI API key
+prompt_voyage_api_key() {
+    # Skip prompting in dry-run mode
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        return 0
+    fi
+    
+    echo
+    log "VOYAGE AI API KEY CONFIGURATION"
+    log ""
+    log "Claude Batch Server uses Voyage AI for semantic code search (CIDX)."
+    log "You need a Voyage AI API key for optimal performance."
+    log ""
+    log "Get your API key from: https://dash.voyageai.com/api-keys"
+    log ""
+    
+    local api_key=""
+    while true; do
+        echo -n "Enter your Voyage AI API key (or press Enter to skip): "
+        read -r api_key
+        
+        # Allow user to skip
+        if [[ -z "$api_key" ]]; then
+            warn "Skipping Voyage AI API key configuration"
+            warn "CIDX will use fallback embedding provider (performance may be limited)"
+            return 0
+        fi
+        
+        # Validate key format
+        if validate_voyage_api_key "$api_key"; then
+            sync_voyage_api_key "$api_key"
+            log "✓ Voyage AI API key configured successfully"
+            return 0
+        else
+            echo "Invalid API key format. Voyage AI keys should start with 'pa-' followed by 40+ characters."
+            echo "Please try again or press Enter to skip."
+        fi
+    done
+}
+
+# Sync API key between all storage locations
+sync_voyage_api_key() {
+    local api_key="$1"
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    local shell_file="$HOME/.bashrc"
+    local synced=false
+    
+    # Sync to appsettings.json if missing or different
+    if [[ -f "$config_file" ]]; then
+        local config_key=$(jq -r '.Cidx.VoyageApiKey // empty' "$config_file" 2>/dev/null)
+        if [[ "$config_key" != "$api_key" ]]; then
+            log "Syncing Voyage AI API key to appsettings.json"
+            sudo jq --arg key "$api_key" '.Cidx.VoyageApiKey = $key' "$config_file" > /tmp/appsettings.json.tmp && \
+            sudo mv /tmp/appsettings.json.tmp "$config_file"
+            synced=true
+        fi
+    fi
+    
+    # Sync to environment variable if missing
+    if [[ "$VOYAGE_API_KEY" != "$api_key" ]]; then
+        log "Setting VOYAGE_API_KEY environment variable"
+        export VOYAGE_API_KEY="$api_key"
+        synced=true
+    fi
+    
+    # Sync to shell configuration if missing or different
+    if [[ -f "$shell_file" ]]; then
+        local shell_key=""
+        if grep -q "VOYAGE_API_KEY" "$shell_file"; then
+            shell_key=$(grep "VOYAGE_API_KEY" "$shell_file" | head -1 | cut -d'"' -f2 2>/dev/null)
+        fi
+        
+        if [[ "$shell_key" != "$api_key" ]]; then
+            log "Syncing Voyage AI API key to shell configuration"
+            # Remove existing VOYAGE_API_KEY export if present
+            sed -i '/export VOYAGE_API_KEY=/d' "$shell_file"
+            # Add new export
+            echo "export VOYAGE_API_KEY=\"$api_key\"" >> "$shell_file"
+            synced=true
+        fi
+    fi
+    
+    if [[ "$synced" == "true" ]]; then
+        log "✓ Voyage AI API key synchronized across all locations"
+    else
+        log "✓ Voyage AI API key already synchronized"
+    fi
+}
+
+# Configure Voyage AI API key
+configure_voyage_api_key() {
+    local config_file="/opt/claude-batch-server/appsettings.json"
+    local api_key=""
+    
+    # Check appsettings.json first
+    if [[ -f "$config_file" ]]; then
+        local config_key=$(jq -r '.Cidx.VoyageApiKey // empty' "$config_file" 2>/dev/null)
+        if validate_voyage_api_key "$config_key"; then
+            api_key="$config_key"
+            log "✓ Found valid Voyage AI API key in appsettings.json"
+        fi
+    fi
+    
+    # Check environment variable if not found in config
+    if [[ -z "$api_key" && -n "$VOYAGE_API_KEY" ]]; then
+        if validate_voyage_api_key "$VOYAGE_API_KEY"; then
+            api_key="$VOYAGE_API_KEY"
+            log "✓ Found valid Voyage AI API key in environment variable"
+        fi
+    fi
+    
+    # Check shell configuration if not found elsewhere
+    if [[ -z "$api_key" ]]; then
+        for shell_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+            if [[ -f "$shell_file" ]] && grep -q "VOYAGE_API_KEY" "$shell_file"; then
+                local shell_key=$(grep "VOYAGE_API_KEY" "$shell_file" | head -1 | cut -d'"' -f2 2>/dev/null)
+                if validate_voyage_api_key "$shell_key"; then
+                    api_key="$shell_key"
+                    log "✓ Found valid Voyage AI API key in shell configuration"
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    # If we found a valid key anywhere, sync it everywhere
+    if [[ -n "$api_key" ]]; then
+        sync_voyage_api_key "$api_key"
+        return 0
+    fi
+    
+    # Only prompt if no valid key found anywhere
+    log "⚠ Voyage AI API key not found in any location"
+    prompt_voyage_api_key
+}
+
 # Configure Copy-on-Write support
 configure_cow() {
-    log "Configuring Copy-on-Write filesystem support..."
+    # Run interactive workspace setup
+    setup_workspace_interactively
     
-    # Create workspace directories (idempotent)
-    sudo mkdir -p /workspace/repos /workspace/jobs
+    # Determine final workspace path
+    local workspace_path="/workspace"
+    if mountpoint -q /claude-workspace 2>/dev/null; then
+        workspace_path="/claude-workspace"
+    fi
     
-    # Detect filesystem type
-    FS_TYPE=$(df -T /workspace | tail -1 | awk '{print $2}')
-    log "Detected filesystem type: $FS_TYPE"
+    # Ensure workspace directories exist
+    sudo mkdir -p "$workspace_path"/{repos,jobs}
     
-    case "$FS_TYPE" in
-        "xfs")
-            log "XFS filesystem detected - reflink support should be available"
-            # Test reflink support
-            if test_cow_support; then
-                log "XFS reflink support confirmed"
-            else
-                warn "XFS reflink support not available"
-            fi
-            ;;
-        "ext4")
-            log "ext4 filesystem detected - checking reflink support"
-            if test_cow_support; then
-                log "ext4 reflink support confirmed"
-            else
-                warn "ext4 reflink support not available, will use fallback"
-            fi
-            ;;
+    # Detect filesystem type of final workspace
+    local fs_type=$(df -T "$workspace_path" | tail -1 | awk '{print $2}')
+    log "Final workspace: $workspace_path (filesystem: $fs_type)"
+    
+    # Install necessary tools based on filesystem
+    case "$fs_type" in
         "btrfs")
-            log "Btrfs filesystem detected - full CoW support available"
-            # Install btrfs-progs if not already installed
+            log "Btrfs filesystem - installing btrfs-progs"
             case "$OS_ID" in
                 "rocky"|"rhel"|"centos")
                     sudo dnf install -y btrfs-progs
@@ -1296,8 +1874,16 @@ configure_cow() {
                     ;;
             esac
             ;;
+        "xfs"|"ext4")
+            log "$fs_type filesystem - testing reflink support"
+            if test_cow_support_at_path "$workspace_path"; then
+                log "$fs_type reflink support confirmed"
+            else
+                warn "$fs_type reflink support not available, will use fallback"
+            fi
+            ;;
         *)
-            warn "Unknown filesystem type: $FS_TYPE. Will use hardlink fallback."
+            warn "Filesystem $fs_type may not support CoW - will use hardlink fallback"
             ;;
     esac
     
@@ -1316,9 +1902,9 @@ configure_cow() {
         log "rsync already installed"
     fi
     
-    # Set proper permissions (idempotent)
-    sudo chmod 755 /workspace
-    sudo chmod 755 /workspace/repos /workspace/jobs
+    # Set proper permissions
+    sudo chmod 755 "$workspace_path"
+    sudo chmod 755 "$workspace_path"/{repos,jobs}
 }
 
 # Test Copy-on-Write support
@@ -2646,6 +3232,7 @@ main() {
     install_claude_cli
     install_pipx
     install_code_indexer
+    configure_voyage_api_key
     configure_cow
     setup_logging
     build_and_deploy
