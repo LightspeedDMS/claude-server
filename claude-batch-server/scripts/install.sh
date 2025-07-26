@@ -1654,69 +1654,130 @@ validate_installation() {
     fi
 }
 
+# Get network information for access instructions
+get_network_info() {
+    # Get primary IP address
+    local primary_ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "127.0.0.1")
+    
+    # Get external IP if possible (with timeout)
+    local external_ip=""
+    if command -v curl >/dev/null 2>&1; then
+        external_ip=$(timeout 5 curl -s ifconfig.me 2>/dev/null || echo "")
+    fi
+    
+    # Get all network interfaces
+    local interfaces=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -3)
+    
+    echo "PRIMARY_IP=$primary_ip"
+    echo "EXTERNAL_IP=$external_ip"
+    echo "ALL_IPS=$interfaces"
+}
+
 # Print usage instructions
 print_usage() {
+    # Get network information
+    local network_info=$(get_network_info)
+    local primary_ip=$(echo "$network_info" | grep "PRIMARY_IP=" | cut -d'=' -f2)
+    local external_ip=$(echo "$network_info" | grep "EXTERNAL_IP=" | cut -d'=' -f2)
+    local all_ips=$(echo "$network_info" | grep "ALL_IPS=" | cut -d'=' -f2)
+    
     cat << EOF
 
-${GREEN}Claude Batch Server Installation Complete!${NC}
+${GREEN}🎉 Claude Batch Server Installation Complete!${NC}
 
-${YELLOW}Installation Mode:${NC} $([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")
-${YELLOW}Backup Directory:${NC} $BACKUP_DIR
+${YELLOW}Installation Details:${NC}
+- Mode: $([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")
+- OS: $(lsb_release -d 2>/dev/null | cut -f2 || echo "$OS_ID $VERSION_ID")
+- Backup Directory: $BACKUP_DIR
 
-${YELLOW}Next Steps:${NC}
+${YELLOW}📡 Server Access Information:${NC}
+- Primary IP: ${BLUE}$primary_ip${NC}$([ -n "$external_ip" ] && echo "
+- External IP: ${BLUE}$external_ip${NC}")
+- Local Access: ${BLUE}http://localhost$([ "$PRODUCTION_MODE" == "true" ] && echo " (redirects to HTTPS)")${NC}
 
-1. Copy environment configuration:
+${YELLOW}🚀 Essential Setup Steps:${NC}
+
+1. ${BLUE}Set up Claude CLI Authentication:${NC}
+   ${BLUE}claude /login${NC}
+   ${GREEN}# Complete Claude AI authentication in your browser${NC}
+
+2. ${BLUE}Configure Claude CLI permissions:${NC}
+   ${BLUE}claude --dangerously-skip-permissions${NC}
+   ${GREEN}# This allows Claude CLI to work in server environments${NC}
+
+3. ${BLUE}Copy and configure server environment:${NC}
    ${BLUE}cp $PROJECT_DIR/docker/.env.example /etc/claude-batch-server.env${NC}
+   ${BLUE}sudo nano /etc/claude-batch-server.env${NC}
    
-2. Edit configuration:
-   ${BLUE}nano /etc/claude-batch-server.env${NC}
-   
-3. Start the service:
+4. ${BLUE}Start the Claude Batch Server:${NC}
    ${BLUE}sudo systemctl start claude-batch-server${NC}
    
-4. Check service status:
+5. ${BLUE}Verify service is running:${NC}
    ${BLUE}sudo systemctl status claude-batch-server${NC}
-   
-5. View logs:
-   ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
 
-6. Use the CLI tool:
-   ${BLUE}claude-server --help${NC}
-   ${BLUE}claude-server auth login --server-url https://localhost${NC}
+${YELLOW}🛠️ Server Management:${NC}
+
+• View server logs:
+  ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
+
+• Use the CLI tool:
+  ${BLUE}claude-server --help${NC}
+  ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}
+
+• Add users (development mode):
+  ${BLUE}claude-server user add <username> <password>${NC}
 
 EOF
 
 if [[ "$PRODUCTION_MODE" == "true" ]]; then
     cat << EOF
-${YELLOW}Production Mode - Access URLs:${NC}
-- HTTPS (recommended): https://localhost/
-- HTTP (redirects to HTTPS): http://localhost/
-- Direct API: http://localhost:5000/
+${YELLOW}🔒 Production Mode - Additional Information:${NC}
 
-${YELLOW}SSL Certificate Information:${NC}
-- Certificate: /etc/ssl/claude-batch-server/server.crt
-- Private Key: /etc/ssl/claude-batch-server/server.key
-- Valid for: $SSL_CN
+${BLUE}Access URLs:${NC}
+• HTTPS (recommended): ${BLUE}https://$primary_ip/${NC}$([ -n "$external_ip" ] && echo "
+• External HTTPS: ${BLUE}https://$external_ip/${NC}")
+• HTTP (redirects to HTTPS): ${BLUE}http://$primary_ip/${NC}
+• Direct API: ${BLUE}http://$primary_ip:5000/${NC}
 
-${YELLOW}Firewall Status:${NC}
+${BLUE}SSL Certificate:${NC}
+• Certificate: ${BLUE}/etc/ssl/claude-batch-server/server.crt${NC}
+• Private Key: ${BLUE}/etc/ssl/claude-batch-server/server.key${NC}
+• Valid for: ${BLUE}$SSL_CN${NC}
+
+${BLUE}Security Status:${NC}
 EOF
     case "$OS_ID" in
         "rocky"|"rhel"|"centos")
-            echo "- Firewalld: $(sudo systemctl is-active firewalld)"
-            echo "- Allowed ports: HTTP (80), HTTPS (443), API (5000), Docker (8080, 8443)"
+            echo "• Firewalld: $(sudo systemctl is-active firewalld)"
+            echo "• Open ports: HTTP (80), HTTPS (443), API (5000), Docker (8080, 8443)"
             ;;
         "ubuntu")
-            echo "- UFW: $(sudo ufw status | head -1)"
-            echo "- Allowed ports: SSH, HTTP, HTTPS, API (5000), Docker (8080, 8443)"
+            echo "• UFW: $(sudo ufw status | head -1)"
+            echo "• Open ports: SSH, HTTP, HTTPS, API (5000), Docker (8080, 8443)"
             ;;
     esac
+    cat << EOF
+
+${YELLOW}⚠️  Production Checklist:${NC}
+□ Update SSL certificate with proper domain name
+□ Configure firewall for your specific network
+□ Set up proper backup procedures
+□ Review security settings in configuration
+□ Test external access and SSL certificate
+
+EOF
 else
     cat << EOF
-${YELLOW}Development Mode - Access URLs:${NC}
-- Direct API: http://localhost:5000/
-- Docker (if used): http://localhost:8080/
+${YELLOW}🔧 Development Mode - Additional Options:${NC}
 
-${YELLOW}Docker Alternative:${NC}
+${BLUE}Alternative Access URLs:${NC}
+• Direct API: ${BLUE}http://$primary_ip:5000/${NC}
+• Docker (if used): ${BLUE}http://$primary_ip:8080/${NC}
+• All local IPs: ${BLUE}$(echo "$all_ips" | tr '\n' ' ')${NC}
+
+${BLUE}Docker Development Alternative:${NC}
+If you prefer Docker development setup:
+
 1. Navigate to project directory:
    ${BLUE}cd $PROJECT_DIR${NC}
    
@@ -1726,21 +1787,51 @@ ${YELLOW}Docker Alternative:${NC}
    
 3. Start with Docker Compose:
    ${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}
+
+${YELLOW}💡 Development Tips:${NC}
+• Use local authentication files for testing users
+• API server runs without SSL in development mode
+• Direct port access (5000) bypasses nginx proxy
+
 EOF
 fi
 
 cat << EOF
+${YELLOW}📚 Additional Resources:${NC}
 
-${YELLOW}Documentation:${NC}
-- Swagger UI: Available at API URL + /swagger (when running)
-- Logs: /var/log/claude-batch-server/ or docker logs
-- Code Indexer: Run '${BLUE}cidx --help${NC}' for semantic code search options
+${BLUE}API Documentation:${NC}
+• Swagger UI: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
+• Health Check: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/health${NC}
 
-${YELLOW}Service Management:${NC}
-- Start: ${BLUE}sudo systemctl start claude-batch-server${NC}
-- Stop: ${BLUE}sudo systemctl stop claude-batch-server${NC}
-- Restart: ${BLUE}sudo systemctl restart claude-batch-server${NC}
-- Enable auto-start: ${BLUE}sudo systemctl enable claude-batch-server${NC}
+${BLUE}System Logs:${NC}
+• Application logs: ${BLUE}/var/log/claude-batch-server/${NC}
+• System service: ${BLUE}sudo journalctl -u claude-batch-server${NC}
+• Docker logs: ${BLUE}docker logs claude-batch-server${NC} (if using Docker)
+
+${BLUE}Service Commands:${NC}
+• Start: ${BLUE}sudo systemctl start claude-batch-server${NC}
+• Stop: ${BLUE}sudo systemctl stop claude-batch-server${NC}
+• Restart: ${BLUE}sudo systemctl restart claude-batch-server${NC}
+• Enable auto-start: ${BLUE}sudo systemctl enable claude-batch-server${NC}
+• View status: ${BLUE}sudo systemctl status claude-batch-server${NC}
+
+${BLUE}Troubleshooting:${NC}
+• Test Claude CLI: ${BLUE}claude --version${NC}
+• Test claude-server CLI: ${BLUE}claude-server --help${NC}
+• Check API connectivity: ${BLUE}curl -f http://$primary_ip:5000/health${NC}
+• Check port usage: ${BLUE}sudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'${NC}
+
+${GREEN}🎯 Quick Start Summary:${NC}
+1. Run ${BLUE}claude /login${NC} and ${BLUE}claude --dangerously-skip-permissions${NC}
+2. Start service: ${BLUE}sudo systemctl start claude-batch-server${NC}
+3. Add users: ${BLUE}claude-server user add myuser mypassword${NC}
+4. Login via CLI: ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}
+5. Access API: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+
+${YELLOW}🆘 Need Help?${NC}
+• Check the installation log: ${BLUE}$LOG_FILE${NC}
+• Review configuration: ${BLUE}/etc/claude-batch-server.env${NC}
+• Visit project documentation for detailed setup guides
 
 EOF
 }
