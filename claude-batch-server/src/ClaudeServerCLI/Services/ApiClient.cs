@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -341,6 +342,7 @@ public class ApiClient : IApiClient, IDisposable
     }
 
     // Private helper methods
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "All types used are defined in CliJsonSerializerContext")]
     private async Task<T?> GetAsync<T>(string endpoint, CancellationToken cancellationToken, bool requireAuth = true)
     {
         var response = await SendAsync(endpoint, HttpMethod.Get, null, cancellationToken, requireAuth);
@@ -359,9 +361,11 @@ public class ApiClient : IApiClient, IDisposable
             return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.IEnumerableRepositoryResponse)!;
         
         // For other types, use object serialization context
+        // Safe to suppress IL2026 because all used types are defined in CliJsonSerializerContext
         return JsonSerializer.Deserialize<T>(json, CliJsonSerializerContext.Default.Options);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "All types used are defined in CliJsonSerializerContext")]
     private async Task<TResponse?> PostAsync<TRequest, TResponse>(string endpoint, TRequest request, CancellationToken cancellationToken, bool requireAuth = true)
     {
         // Generic serialization - handle known types with trim-safe contexts
@@ -371,6 +375,7 @@ public class ApiClient : IApiClient, IDisposable
         else if (request is CreateJobRequest createJobReq)
             json = JsonSerializer.Serialize(createJobReq, CliJsonSerializerContext.Default.CreateJobRequest);
         else
+            // Safe to suppress IL2026 because all used types are defined in CliJsonSerializerContext
             json = JsonSerializer.Serialize(request, CliJsonSerializerContext.Default.Options);
             
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -392,9 +397,11 @@ public class ApiClient : IApiClient, IDisposable
         if (typeof(TResponse) == typeof(CreateJobResponse))
             return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.CreateJobResponse)!;
         
+        // Safe to suppress IL2026 because all used types are defined in CliJsonSerializerContext
         return JsonSerializer.Deserialize<TResponse>(responseJson, CliJsonSerializerContext.Default.Options);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "All types used are defined in CliJsonSerializerContext")]
     private async Task<T?> DeleteAsync<T>(string endpoint, CancellationToken cancellationToken, bool requireAuth = true)
     {
         var response = await SendAsync(endpoint, HttpMethod.Delete, null, cancellationToken, requireAuth);
@@ -404,6 +411,7 @@ public class ApiClient : IApiClient, IDisposable
         if (typeof(T) == typeof(JobStatusResponse))
             return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.JobStatusResponse)!;
         
+        // Safe to suppress IL2026 because all used types are defined in CliJsonSerializerContext
         return JsonSerializer.Deserialize<T>(json, CliJsonSerializerContext.Default.Options);
     }
 

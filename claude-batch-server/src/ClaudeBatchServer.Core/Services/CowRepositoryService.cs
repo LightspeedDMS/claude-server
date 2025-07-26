@@ -146,7 +146,8 @@ public class CowRepositoryService : IRepositoryService
                 Path = dir,
                 Type = isGitRepo ? "git" : "folder",
                 Size = await _gitMetadataService.CalculateFolderSizeAsync(dir),
-                LastModified = directoryInfo.LastWriteTime
+                LastModified = directoryInfo.LastWriteTime,
+                CidxAware = false // Default to false, will be overridden if found in settings
             };
 
             // Use only internal settings file - eliminates dual file synchronization issues
@@ -394,7 +395,7 @@ public class CowRepositoryService : IRepositoryService
             if (File.Exists(settingsPath))
             {
                 var settingsJson = await File.ReadAllTextAsync(settingsPath);
-                var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(settingsJson);
+                var settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
                 
                 if (settings != null)
                 {

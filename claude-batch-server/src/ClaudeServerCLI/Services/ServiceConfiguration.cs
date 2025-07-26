@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics.CodeAnalysis;
 using Polly;
 using Polly.Extensions.Http;
 using ClaudeServerCLI.Models;
@@ -10,6 +11,7 @@ namespace ClaudeServerCLI.Services;
 
 public static class ServiceConfiguration
 {
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Configuration options types are preserved")]
     public static IServiceCollection ConfigureServices(this IServiceCollection services, IConfiguration configuration)
     {
         // Configuration options
