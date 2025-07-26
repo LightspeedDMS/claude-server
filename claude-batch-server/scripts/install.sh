@@ -2417,6 +2417,10 @@ start_services() {
         log "Starting Claude Batch Server service..."
     fi
     
+    # Reload systemd to pick up any service file changes
+    log "Reloading systemd daemon to pick up service file changes..."
+    sudo systemctl daemon-reload
+    
     sudo systemctl "$service_action" claude-batch-server
     
     # Wait a moment for service to fully start
