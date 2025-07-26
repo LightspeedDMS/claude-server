@@ -499,11 +499,17 @@ dry_run_analyze_cli_tool() {
     echo ""
 }
 
-# Ensure script runs with sudo privileges
-ensure_sudo() {
-    if [[ $EUID -ne 0 ]]; then
-        log "Script requires root privileges. Re-running with sudo..."
-        exec sudo "$0" "$@"
+# Check if sudo is available and warn about individual command usage
+check_sudo_available() {
+    if ! command -v sudo >/dev/null 2>&1; then
+        error "sudo is required for this installation script"
+        exit 1
+    fi
+    
+    # Test sudo access
+    if ! sudo -n true 2>/dev/null; then
+        warn "This script will prompt for sudo password when needed for system operations"
+        warn "You may be prompted for your password multiple times during installation"
     fi
 }
 
@@ -674,21 +680,19 @@ EOF
                 curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0
             fi
             
-            # Add to system PATH (idempotent)
-            if ! grep -q 'export PATH="$HOME/.dotnet:$PATH"' /etc/environment; then
-                echo 'export PATH="$HOME/.dotnet:$PATH"' | sudo tee -a /etc/environment
-                log "Added .dotnet to PATH in /etc/environment"
+            # Add to current user's PATH and environment
+            if ! echo "$PATH" | grep -q "$HOME/.dotnet"; then
+                export PATH="$HOME/.dotnet:$PATH"
+                export DOTNET_ROOT="$HOME/.dotnet"
             fi
             
-            if ! grep -q 'export DOTNET_ROOT=$HOME/.dotnet' /etc/environment; then
-                echo 'export DOTNET_ROOT=$HOME/.dotnet' | sudo tee -a /etc/environment
-                log "Added DOTNET_ROOT to /etc/environment"
-            fi
-            
-            # Create symlink for system-wide access (idempotent)
-            if [[ ! -L /usr/local/bin/dotnet ]]; then
-                sudo ln -sf "$HOME/.dotnet/dotnet" /usr/local/bin/dotnet
-                log "Created symlink for system-wide dotnet access"
+            # Add to .bashrc for permanent PATH setting (idempotent)
+            if ! grep -q 'export PATH="$HOME/.dotnet:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
+                echo "" >> "$HOME/.bashrc"
+                echo "# .NET SDK PATH (added by install script)" >> "$HOME/.bashrc"
+                echo 'export PATH="$HOME/.dotnet:$PATH"' >> "$HOME/.bashrc"
+                echo 'export DOTNET_ROOT="$HOME/.dotnet"' >> "$HOME/.bashrc"
+                log "Added .NET SDK to PATH in ~/.bashrc"
             fi
             ;;
         *)
@@ -1057,13 +1061,26 @@ install_docker() {
 install_claude_cli() {
     log "Installing Claude Code CLI..."
     
-    # Install using official installer
+    # Install using official installer as regular user
     curl -fsSL https://claude.ai/install.sh | bash
     
-    # Add to system PATH
+    # Ensure .local/bin is in PATH for the current user
     if [[ -f "$HOME/.local/bin/claude" ]]; then
-        ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude
-        log "Claude Code CLI installed successfully"
+        # Add to current user's PATH if not already there
+        if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
+        
+        # Add to .bashrc for permanent PATH setting
+        if ! grep -q "$HOME/.local/bin" "$HOME/.bashrc" 2>/dev/null; then
+            echo "" >> "$HOME/.bashrc"
+            echo "# Claude CLI PATH (added by install script)" >> "$HOME/.bashrc"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+            log "Added Claude CLI to PATH in ~/.bashrc"
+        fi
+        
+        log "Claude Code CLI installed successfully at $HOME/.local/bin/claude"
+        log "You may need to run 'source ~/.bashrc' or restart your shell to use 'claude' command"
     else
         warn "Claude Code CLI installation may have failed, but continuing..."
     fi
@@ -1822,6 +1839,8 @@ ${BLUE}Troubleshooting:${NC}
 • Check port usage: ${BLUE}sudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'${NC}
 
 ${GREEN}🎯 Quick Start Summary:${NC}
+${YELLOW}First, restart your shell or run:${NC} ${BLUE}source ~/.bashrc${NC}
+
 1. Run ${BLUE}claude /login${NC} and ${BLUE}claude --dangerously-skip-permissions${NC}
 2. Start service: ${BLUE}sudo systemctl start claude-batch-server${NC}
 3. Add users: ${BLUE}claude-server user add myuser mypassword${NC}
@@ -1904,6 +1923,9 @@ print_help() {
 
 ${GREEN}Claude Batch Server Installation Script${NC}
 
+${RED}⚠️  IMPORTANT: Do NOT run this script with sudo!${NC}
+${YELLOW}Run as a regular user. The script will prompt for sudo when needed.${NC}
+
 ${YELLOW}Usage:${NC}
   $0 [OPTIONS]
 
@@ -1943,6 +1965,14 @@ EOF
 
 # Main installation function
 main() {
+    # Check if running with sudo (which we don't want)
+    if [[ $EUID -eq 0 ]]; then
+        error "This script should NOT be run with sudo!"
+        error "Please run as a regular user: ./install.sh $*"
+        error "The script will prompt for sudo when needed for specific operations."
+        exit 1
+    fi
+    
     log "Starting Claude Batch Server installation..."
     
     # Parse command line arguments first to set DRY_RUN_MODE
@@ -1964,8 +1994,8 @@ main() {
         exit 0
     fi
     
-    # Ensure we have sudo privileges (skip in dry-run mode)
-    ensure_sudo "$@"
+    # Check sudo availability (skip in dry-run mode)
+    check_sudo_available
     
     # Install base components
     log "Installing base components..."
