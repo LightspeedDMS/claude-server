@@ -1772,6 +1772,66 @@ ${YELLOW}🚀 Essential Setup Steps:${NC}
 5. ${BLUE}Verify service is running:${NC}
    ${BLUE}sudo systemctl status claude-batch-server${NC}
 
+${YELLOW}🏃 How to Run Claude Batch Server:${NC}
+
+${BLUE}Option 1: Systemd Service (Recommended for Production)${NC}
+The installation has created a systemd service for you:
+
+• Start the service:
+  ${BLUE}sudo systemctl start claude-batch-server${NC}
+
+• Enable auto-start on boot:
+  ${BLUE}sudo systemctl enable claude-batch-server${NC}
+
+• Check service status:
+  ${BLUE}sudo systemctl status claude-batch-server${NC}
+
+• View service logs:
+  ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
+
+• Stop the service:
+  ${BLUE}sudo systemctl stop claude-batch-server${NC}
+
+• Restart the service:
+  ${BLUE}sudo systemctl restart claude-batch-server${NC}
+
+${BLUE}Option 2: Docker Compose (Alternative)${NC}
+If you prefer containerized deployment:
+
+• Navigate to project directory:
+  ${BLUE}cd $PROJECT_DIR${NC}
+
+• Configure Docker environment:
+  ${BLUE}cp docker/.env.example docker/.env${NC}
+  ${BLUE}nano docker/.env${NC}
+
+• Start with Docker Compose:
+  ${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}
+
+• View container logs:
+  ${BLUE}docker logs claude-batch-server -f${NC}
+
+• Stop containers:
+  ${BLUE}docker compose -f docker/docker-compose.yml down${NC}
+
+${BLUE}Option 3: Manual Development Mode${NC}
+For development and testing:
+
+• Navigate to API directory:
+  ${BLUE}cd $PROJECT_DIR/src/ClaudeBatchServer.Api${NC}
+
+• Run directly with .NET:
+  ${BLUE}dotnet run${NC}
+
+• Or build and run:
+  ${BLUE}dotnet build && dotnet run --project ClaudeBatchServer.Api${NC}
+
+${YELLOW}⚙️ Configuration:${NC}
+
+• System service config: ${BLUE}/etc/claude-batch-server.env${NC}
+• Docker config: ${BLUE}$PROJECT_DIR/docker/.env${NC}
+• Development config: ${BLUE}$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.Development.json${NC}
+
 ${YELLOW}🛠️ Server Management:${NC}
 
 • View server logs:
@@ -1783,6 +1843,37 @@ ${YELLOW}🛠️ Server Management:${NC}
 
 • Add users (development mode):
   ${BLUE}claude-server user add <username> <password>${NC}
+
+${YELLOW}👥 User Authentication Management:${NC}
+
+• Add a new user:
+  ${BLUE}claude-server user add myuser mypassword123${NC}
+
+• List all users:
+  ${BLUE}claude-server user list${NC}
+  ${BLUE}claude-server user list --detailed${NC}
+
+• Update user password:
+  ${BLUE}claude-server user update myuser newpassword456${NC}
+
+• Remove a user:
+  ${BLUE}claude-server user remove myuser${NC}
+
+• Login via CLI:
+  ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+
+${YELLOW}🧪 Testing Your Installation:${NC}
+
+• Test API health:
+  ${BLUE}curl -f http://$primary_ip:5000/health${NC}
+
+• Test authentication (after adding user):
+  ${BLUE}curl -X POST http://$primary_ip:5000/auth/login \\
+    -H 'Content-Type: application/json' \\
+    -d '{"username":"myuser","password":"mypassword123"}'${NC}
+
+• Access Swagger UI:
+  ${BLUE}Open: http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
 
 EOF
 
@@ -1881,11 +1972,22 @@ ${BLUE}Troubleshooting:${NC}
 ${GREEN}🎯 Quick Start Summary:${NC}
 $([ -f "/tmp/claude-path-setup.sh" ] && echo "${YELLOW}If 'claude' command is not found, first run:${NC} ${BLUE}source /tmp/claude-path-setup.sh${NC}")
 
-1. Run ${BLUE}claude /login${NC} and ${BLUE}claude --dangerously-skip-permissions${NC}
-2. Start service: ${BLUE}sudo systemctl start claude-batch-server${NC}
-3. Add users: ${BLUE}claude-server user add myuser mypassword${NC}
-4. Login via CLI: ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}
-5. Access API: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+${YELLOW}Essential Steps:${NC}
+1. ${BLUE}claude /login${NC} ${GREEN}# Authenticate with Claude AI${NC}
+2. ${BLUE}claude --dangerously-skip-permissions${NC} ${GREEN}# Allow server usage${NC}
+3. ${BLUE}sudo systemctl start claude-batch-server${NC} ${GREEN}# Start the service${NC}
+4. ${BLUE}claude-server user add myuser mypassword${NC} ${GREEN}# Create your first user${NC}
+5. ${BLUE}curl -f http://$primary_ip:5000/health${NC} ${GREEN}# Verify it's running${NC}
+
+${YELLOW}Access Your Server:${NC}
+• API: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+• Swagger UI: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
+• CLI Login: ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+
+${YELLOW}Service Management:${NC}
+• Status: ${BLUE}sudo systemctl status claude-batch-server${NC}
+• Logs: ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
+• Restart: ${BLUE}sudo systemctl restart claude-batch-server${NC}
 
 ${YELLOW}🆘 Need Help?${NC}
 • Check the installation log: ${BLUE}$LOG_FILE${NC}
