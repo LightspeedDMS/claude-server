@@ -74,8 +74,26 @@ sudo apt install -y git
 #### 2. Verify Copy-on-Write Support
 ```bash
 # Test CoW on current filesystem
-cp --reflink=always /etc/passwd /tmp/test-cow 2>/dev/null && echo "CoW supported" || echo "CoW not supported, will use fallback"
+cp --reflink=always /etc/passwd /tmp/test-cow 2>/dev/null && echo "CoW supported" || echo "CoW not supported, will use full copy fallback"
 rm -f /tmp/test-cow
+```
+
+**Performance Impact by Filesystem:**
+- **Btrfs/XFS/ZFS**: ⚡ Instant CoW clones (recommended)
+- **ext4**: 🐌 Full directory copying (functional but slower)
+- **ext3/NTFS**: 🐌 Full directory copying (functional but slower)
+
+**Job Isolation:**
+- **All filesystems**: ✅ Complete isolation - jobs cannot corrupt each other or the original repository
+- **CoW filesystems**: Files are only copied when modified (space efficient)
+- **Non-CoW filesystems**: Full directory copy ensures complete safety
+
+**For Production on ext4**: Consider migrating to XFS for better performance:
+```bash
+# Format new partition with XFS
+mkfs.xfs /dev/sdX
+# Mount with reflink support (enabled by default)
+mount /dev/sdX /workspace
 ```
 
 ## Configuration

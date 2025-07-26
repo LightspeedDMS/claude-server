@@ -612,8 +612,8 @@ public class CowRepositoryService : IRepositoryService
             case CowMethod.BtrfsReflink:
                 await CreateReflinkCloneAsync(repository.Path, jobPath);
                 break;
-            case CowMethod.HardlinkFallback:
-                await CreateHardlinkCloneAsync(repository.Path, jobPath);
+            case CowMethod.FullCopyFallback:
+                await CreateFullCopyCloneAsync(repository.Path, jobPath);
                 break;
             default:
                 throw new NotSupportedException("No Copy-on-Write method available");
@@ -866,14 +866,14 @@ public class CowRepositoryService : IRepositoryService
 
             if (_cowMethod == CowMethod.Unsupported)
             {
-                _cowMethod = CowMethod.HardlinkFallback;
-                _logger.LogWarning("No CoW support detected, falling back to hardlink copying");
+                _cowMethod = CowMethod.FullCopyFallback;
+                _logger.LogWarning("No CoW support detected, falling back to full directory copying (slower but safe)");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to detect CoW method, using hardlink fallback");
-            _cowMethod = CowMethod.HardlinkFallback;
+            _logger.LogError(ex, "Failed to detect CoW method, using full copy fallback");
+            _cowMethod = CowMethod.FullCopyFallback;
         }
     }
 
@@ -944,7 +944,7 @@ public class CowRepositoryService : IRepositoryService
     }
 
 
-    private async Task CreateHardlinkCloneAsync(string sourcePath, string targetPath)
+    private async Task CreateFullCopyCloneAsync(string sourcePath, string targetPath)
     {
         // If target already exists, remove it first to avoid permission issues
         if (Directory.Exists(targetPath))
@@ -955,13 +955,19 @@ public class CowRepositoryService : IRepositoryService
         // Create target directory first
         Directory.CreateDirectory(targetPath);
         
-        // Use rsync to copy contents with hardlinks (not the directory itself)
+        _logger.LogInformation("Creating full copy from {SourcePath} to {TargetPath} (this may take some time)", sourcePath, targetPath);
+        
+        // Use rsync for reliable full copying (not the directory itself)
         // This prevents nested repository directories like /workspace/jobs/[id]/tries/tries/
-        var result = await ExecuteCommandAsync("rsync", "-a", $"--link-dest={sourcePath}", $"{sourcePath}/", $"{targetPath}/");
+        // --archive preserves permissions, timestamps, etc.
+        // --exclude='.git/objects/pack/*.idx' --exclude='.git/objects/pack/*.pack' can be added to speed up git repos if needed
+        var result = await ExecuteCommandAsync("rsync", "-a", "--no-links", $"{sourcePath}/", $"{targetPath}/");
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException($"Failed to create hardlink clone: {result.Error}");
+            throw new InvalidOperationException($"Failed to create full copy clone: {result.Error}");
         }
+        
+        _logger.LogInformation("Full copy completed successfully from {SourcePath} to {TargetPath}", sourcePath, targetPath);
     }
 
     /// <summary>
@@ -1070,5 +1076,5 @@ public enum CowMethod
     XfsReflink,
     Ext4Reflink,
     BtrfsReflink,
-    HardlinkFallback
+    FullCopyFallback
 }
