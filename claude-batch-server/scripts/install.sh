@@ -2116,17 +2116,30 @@ $(echo -e "$(echo -e "${YELLOW}🧪 Testing Your Installation:${NC}")")
 • Access Swagger UI:
   ${BLUE}Open: http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
 
+$(echo -e "${YELLOW}🌐 Web UI Access:${NC}")
+
+• Main Web Application:
+  ${BLUE}Open: http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/${NC}
+
+• Features Available:
+  - User authentication and login
+  - Repository management and browsing
+  - Job creation and monitoring  
+  - File upload and download
+  - Real-time status updates
+
 EOF
 
 if [[ "$PRODUCTION_MODE" == "true" ]]; then
     cat << EOF
 $(echo -e "${YELLOW}🔒 Production Mode - Additional Information:${NC}")
 
-$(echo -e "${BLUE}Access URLs:${NC}")
-• HTTPS (recommended): ${BLUE}https://$primary_ip/${NC}$([ -n "$external_ip" ] && echo "
-• External HTTPS: ${BLUE}https://$external_ip/${NC}")
-• HTTP (redirects to HTTPS): ${BLUE}http://$primary_ip/${NC}
-• Direct API: ${BLUE}http://$primary_ip:5000/${NC}
+$(echo -e "${BLUE}Web UI Access URLs:${NC}")
+• Main Web Application (HTTPS): ${BLUE}https://$primary_ip/${NC}$([ -n "$external_ip" ] && echo "
+• External Web UI (HTTPS): ${BLUE}https://$external_ip/${NC}")
+• Web UI (HTTP - redirects to HTTPS): ${BLUE}http://$primary_ip/${NC}
+• API Endpoints: ${BLUE}https://$primary_ip/api/${NC}  
+• Direct API (backend): ${BLUE}http://$primary_ip:5000/${NC}
 
 $(echo -e "${BLUE}SSL Certificate:${NC}")
 • Certificate: $(echo -e "${BLUE}/etc/ssl/claude-batch-server/server.crt${NC}")
@@ -2159,8 +2172,10 @@ else
     cat << EOF
 $(echo -e "${YELLOW}🔧 Development Mode - Additional Options:${NC}")
 
-$(echo -e "${BLUE}Alternative Access URLs:${NC}")
-• Direct API: ${BLUE}http://$primary_ip:5000/${NC}
+$(echo -e "${BLUE}Web UI and API Access URLs:${NC}")
+• Main Web Application: ${BLUE}http://$primary_ip:5000/${NC}
+• API Endpoints: ${BLUE}http://$primary_ip:5000/api/${NC}
+• Swagger UI: ${BLUE}http://$primary_ip:5000/swagger${NC}
 • Docker (if used): ${BLUE}http://$primary_ip:8080/${NC}
 • All local IPs: ${BLUE}$(echo "$all_ips" | tr '\n' ' ')${NC}
 
@@ -2219,7 +2234,8 @@ fi
     printf "5. %bcurl -f http://%s:5000/health%b %b# Verify it's running%b\n\n" "$BLUE" "$primary_ip" "$NC" "$GREEN" "$NC"
     
     printf "%bAccess Your Server:%b\n" "$YELLOW" "$NC"
-    printf "• API: %bhttp://%s%s:%s%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Web UI: %bhttp://%s%s:%s%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• API: %bhttp://%s%s:%s/api%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
     printf "• Swagger UI: %bhttp://%s%s:%s/swagger%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
     printf "• CLI Login: %bclaude-server auth login --server-url http://%s%s:%s%b\n\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
     
