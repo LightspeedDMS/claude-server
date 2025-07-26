@@ -397,29 +397,10 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
     private void ImpersonateUser(ProcessStartInfo processInfo, UserInfo userInfo)
     {
-        try
-        {
-            if (Environment.UserName != "root")
-            {
-                _logger.LogWarning("Not running as root, user impersonation may not work properly");
-                return;
-            }
-
-            // Wrap the original command with sudo
-            var originalCommand = processInfo.FileName;
-            var originalArgs = processInfo.Arguments;
-            
-            processInfo.FileName = "sudo";
-            processInfo.Arguments = $"-u {userInfo.Username} -H -- {originalCommand} {originalArgs}";
-
-            _logger.LogDebug("Executing as user {Username} with command: sudo {Arguments}", 
-                userInfo.Username, processInfo.Arguments);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to set up user impersonation for {Username}", userInfo.Username);
-            throw;
-        }
+        // Note: User impersonation is no longer needed since the service runs as the current user
+        // instead of root. The service user already has the necessary permissions to execute commands.
+        _logger.LogDebug("Service running as user {CurrentUser}, no impersonation needed", 
+            Environment.UserName);
     }
 
     private async Task<(bool Success, string Status, string ErrorMessage)> HandleGitOperationsAsync(Job job, UserInfo userInfo, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
@@ -1148,7 +1129,7 @@ Prompt to summarize:
             var processInfo = new ProcessStartInfo
             {
                 FileName = "bash",
-                Arguments = $"-c \"echo '{processedPrompt.Replace("'", "'\"'\"'")}' | sudo -u {userInfo.Username} -H {claudeCommand}\"",
+                Arguments = $"-c \"echo '{processedPrompt.Replace("'", "'\"'\"'")}' | {claudeCommand}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
