@@ -1763,7 +1763,7 @@ print_usage() {
     printf "%bInstallation Details:%b\n" "$YELLOW" "$NC"
     printf "- Mode: %s\n" "$([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")"
     printf "- OS: %s\n" "$(lsb_release -d 2>/dev/null | cut -f2 || echo "$OS_ID $VERSION_ID")"
-    printf "- Backup Directory: %s\n\n" "$BACKUP_DIR"
+    printf "- Backup Directory: %s\n\n" "${BACKUP_DIR:-"(none created)"}"
     printf "%b📡 Server Access Information:%b\n" "$YELLOW" "$NC"
     printf "- Primary IP: %b%s%b\n" "$BLUE" "$primary_ip" "$NC"
     [ -n "$external_ip" ] && printf "- External IP: %b%s%b\n" "$BLUE" "$external_ip" "$NC"
