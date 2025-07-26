@@ -1289,6 +1289,28 @@ build_and_deploy() {
     dotnet restore
     dotnet build -c Release
     
+    # Ensure the API project DLL exists in the expected location
+    local api_dll="$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/ClaudeBatchServer.Api.dll"
+    local target_dir="$PROJECT_DIR/src/ClaudeBatchServer.Api"
+    
+    if [[ -f "$api_dll" ]]; then
+        # Copy the built DLL to the working directory expected by systemd
+        cp "$api_dll" "$target_dir/"
+        log "Copied API DLL to systemd working directory"
+    else
+        error "API DLL not found at $api_dll after build"
+        error "Build may have failed. Check build output above."
+        exit 1
+    fi
+    
+    # Verify the DLL exists where systemd expects it
+    if [[ ! -f "$target_dir/ClaudeBatchServer.Api.dll" ]]; then
+        error "ClaudeBatchServer.Api.dll not found in expected location: $target_dir"
+        exit 1
+    fi
+    
+    log "API DLL verified at: $target_dir/ClaudeBatchServer.Api.dll"
+    
     # Create systemd service
     create_systemd_service
     
