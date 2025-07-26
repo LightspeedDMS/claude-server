@@ -17,8 +17,8 @@ PRODUCTION_MODE=false
 DEVELOPMENT_MODE=false
 DRY_RUN_MODE=false
 
-# Colors for output - detect if colors should be used
-if [[ -t 1 ]] && [[ "$TERM" != "dumb" ]] && command -v tput >/dev/null 2>&1 && tput colors >/dev/null 2>&1; then
+# Colors for output - simplified detection that works with SSH
+if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]] && [[ "${NO_COLOR:-}" != "1" ]]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'
@@ -27,7 +27,7 @@ if [[ -t 1 ]] && [[ "$TERM" != "dumb" ]] && command -v tput >/dev/null 2>&1 && t
     CYAN='\033[0;36m'
     NC='\033[0m' # No Color
 else
-    # Disable colors for non-interactive terminals or terminals without color support
+    # Disable colors for non-interactive terminals or when NO_COLOR is set
     RED=''
     GREEN=''
     YELLOW=''
@@ -1963,57 +1963,53 @@ ${YELLOW}💡 Development Tips:${NC}
 EOF
 fi
 
-cat << EOF
-${YELLOW}📚 Additional Resources:${NC}
-
-${BLUE}API Documentation:${NC}
-• Swagger UI: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
-• Health Check: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/health${NC}
-
-${BLUE}System Logs:${NC}
-• Application logs: ${BLUE}/var/log/claude-batch-server/${NC}
-• System service: ${BLUE}sudo journalctl -u claude-batch-server${NC}
-• Docker logs: ${BLUE}docker logs claude-batch-server${NC} (if using Docker)
-
-${BLUE}Service Commands:${NC}
-• Start: ${BLUE}sudo systemctl start claude-batch-server${NC}
-• Stop: ${BLUE}sudo systemctl stop claude-batch-server${NC}
-• Restart: ${BLUE}sudo systemctl restart claude-batch-server${NC}
-• Enable auto-start: ${BLUE}sudo systemctl enable claude-batch-server${NC}
-• View status: ${BLUE}sudo systemctl status claude-batch-server${NC}
-
-${BLUE}Troubleshooting:${NC}
-• Test Claude CLI: ${BLUE}claude --version${NC}
-• Test claude-server CLI: ${BLUE}claude-server --help${NC}
-• Check API connectivity: ${BLUE}curl -f http://$primary_ip:5000/health${NC}
-• Check port usage: ${BLUE}sudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'${NC}
-
-${GREEN}🎯 Quick Start Summary:${NC}
-$([ -f "/tmp/claude-path-setup.sh" ] && echo "${YELLOW}If 'claude' command is not found, first run:${NC} ${BLUE}source /tmp/claude-path-setup.sh${NC}")
-
-${YELLOW}Essential Steps:${NC}
-1. ${BLUE}claude /login${NC} ${GREEN}# Authenticate with Claude AI${NC}
-2. ${BLUE}claude --dangerously-skip-permissions${NC} ${GREEN}# Allow server usage${NC}
-3. ${BLUE}sudo systemctl start claude-batch-server${NC} ${GREEN}# Start the service${NC}
-4. ${BLUE}claude-server user add myuser mypassword${NC} ${GREEN}# Create your first user${NC}
-5. ${BLUE}curl -f http://$primary_ip:5000/health${NC} ${GREEN}# Verify it's running${NC}
-
-${YELLOW}Access Your Server:${NC}
-• API: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
-• Swagger UI: ${BLUE}http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")/swagger${NC}
-• CLI Login: ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
-
-${YELLOW}Service Management:${NC}
-• Status: ${BLUE}sudo systemctl status claude-batch-server${NC}
-• Logs: ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
-• Restart: ${BLUE}sudo systemctl restart claude-batch-server${NC}
-
-${YELLOW}🆘 Need Help?${NC}
-• Check the installation log: ${BLUE}$LOG_FILE${NC}
-• Review configuration: ${BLUE}/etc/claude-batch-server.env${NC}
-• Visit project documentation for detailed setup guides
-
-EOF
+    printf "%b📚 Additional Resources:%b\n\n" "$YELLOW" "$NC"
+    printf "%bAPI Documentation:%b\n" "$BLUE" "$NC"
+    printf "• Swagger UI: %bhttp://%s%s:%s/swagger%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Health Check: %bhttp://%s%s:%s/health%b\n\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    
+    printf "%bSystem Logs:%b\n" "$BLUE" "$NC"
+    printf "• Application logs: %b/var/log/claude-batch-server/%b\n" "$BLUE" "$NC"
+    printf "• System service: %bsudo journalctl -u claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• Docker logs: %bdocker logs claude-batch-server%b (if using Docker)\n\n" "$BLUE" "$NC"
+    
+    printf "%bService Commands:%b\n" "$BLUE" "$NC"
+    printf "• Start: %bsudo systemctl start claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• Stop: %bsudo systemctl stop claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• Restart: %bsudo systemctl restart claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• Enable auto-start: %bsudo systemctl enable claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• View status: %bsudo systemctl status claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "%bTroubleshooting:%b\n" "$BLUE" "$NC"
+    printf "• Test Claude CLI: %bclaude --version%b\n" "$BLUE" "$NC"
+    printf "• Test claude-server CLI: %bclaude-server --help%b\n" "$BLUE" "$NC"
+    printf "• Check API connectivity: %bcurl -f http://%s:5000/health%b\n" "$BLUE" "$primary_ip" "$NC"
+    printf "• Check port usage: %bsudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'%b\n\n" "$BLUE" "$NC"
+    
+    printf "%b🎯 Quick Start Summary:%b\n" "$GREEN" "$NC"
+    [ -f "/tmp/claude-path-setup.sh" ] && printf "%bIf 'claude' command is not found, first run:%b %bsource /tmp/claude-path-setup.sh%b\n\n" "$YELLOW" "$NC" "$BLUE" "$NC"
+    
+    printf "%bEssential Steps:%b\n" "$YELLOW" "$NC"
+    printf "1. %bclaude /login%b %b# Authenticate with Claude AI%b\n" "$BLUE" "$NC" "$GREEN" "$NC"
+    printf "2. %bclaude --dangerously-skip-permissions%b %b# Allow server usage%b\n" "$BLUE" "$NC" "$GREEN" "$NC"
+    printf "3. %bsudo systemctl start claude-batch-server%b %b# Start the service%b\n" "$BLUE" "$NC" "$GREEN" "$NC"
+    printf "4. %bclaude-server user add myuser mypassword%b %b# Create your first user%b\n" "$BLUE" "$NC" "$GREEN" "$NC"
+    printf "5. %bcurl -f http://%s:5000/health%b %b# Verify it's running%b\n\n" "$BLUE" "$primary_ip" "$NC" "$GREEN" "$NC"
+    
+    printf "%bAccess Your Server:%b\n" "$YELLOW" "$NC"
+    printf "• API: %bhttp://%s%s:%s%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Swagger UI: %bhttp://%s%s:%s/swagger%b\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• CLI Login: %bclaude-server auth login --server-url http://%s%s:%s%b\n\n" "$BLUE" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "s")" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    
+    printf "%bService Management:%b\n" "$YELLOW" "$NC"
+    printf "• Status: %bsudo systemctl status claude-batch-server%b\n" "$BLUE" "$NC"
+    printf "• Logs: %bsudo journalctl -u claude-batch-server -f%b\n" "$BLUE" "$NC"
+    printf "• Restart: %bsudo systemctl restart claude-batch-server%b\n\n" "$BLUE" "$NC"
+    
+    printf "%b🆘 Need Help?%b\n" "$YELLOW" "$NC"
+    printf "• Check the installation log: %b%s%b\n" "$BLUE" "$LOG_FILE" "$NC"
+    printf "• Review configuration: %b/etc/claude-batch-server.env%b\n" "$BLUE" "$NC"
+    printf "• Visit project documentation for detailed setup guides\n\n"
 }
 
 # Parse command line arguments
@@ -2080,17 +2076,13 @@ parse_arguments() {
 
 # Print help information
 print_help() {
+    printf "\n%bClaude Batch Server Installation Script%b\n\n" "$GREEN" "$NC"
+    printf "%b⚠️  IMPORTANT: Do NOT run this script with sudo!%b\n" "$RED" "$NC"
+    printf "%bRun as a regular user. The script will prompt for sudo when needed.%b\n\n" "$YELLOW" "$NC"
+    printf "%bUsage:%b\n" "$YELLOW" "$NC"
+    printf "  %s [OPTIONS]\n\n" "$0"
+    printf "%bOptions:%b\n" "$YELLOW" "$NC"
     cat << EOF
-
-${GREEN}Claude Batch Server Installation Script${NC}
-
-${RED}⚠️  IMPORTANT: Do NOT run this script with sudo!${NC}
-${YELLOW}Run as a regular user. The script will prompt for sudo when needed.${NC}
-
-${YELLOW}Usage:${NC}
-  $0 [OPTIONS]
-
-${YELLOW}Options:${NC}
   --production              Install in production mode with nginx, SSL, and firewall
   --development, --dev      Install in development mode (default)
   
