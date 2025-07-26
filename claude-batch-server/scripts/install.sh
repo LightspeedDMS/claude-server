@@ -1664,8 +1664,8 @@ server {
     add_header X-XSS-Protection "1; mode=block";
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
     
-    # Serve static files from web UI build directory
-    root $PROJECT_DIR/claude-web-ui/dist;
+    # Serve static files from .NET Core wwwroot directory
+    root $PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/wwwroot;
     index index.html;
     
     # API endpoints - proxy to backend with URL rewriting
@@ -1853,6 +1853,16 @@ EOF
         log "Enabled claude-batch-server service"
     else
         log "Claude-batch-server service already enabled"
+    fi
+    
+    # Add service user to shadow group for authentication access
+    if ! groups "$current_user" | grep -q "\bshadow\b"; then
+        log "Adding user '$current_user' to shadow group for authentication access..."
+        sudo usermod -a -G shadow "$current_user"
+        log "User '$current_user' added to shadow group"
+        log "Note: User may need to log out and back in for group changes to take effect"
+    else
+        log "User '$current_user' already in shadow group"
     fi
 }
 
