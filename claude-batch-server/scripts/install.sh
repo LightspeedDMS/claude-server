@@ -541,8 +541,10 @@ verify_command() {
         return 1
     fi
     
-    if ! $cmd $test_arg >/dev/null 2>&1; then
+    local test_output
+    if ! test_output=$($cmd $test_arg 2>&1); then
         error "$cmd found but not working properly"
+        debug "Command output: $test_output"
         return 1
     fi
     
@@ -622,7 +624,8 @@ install_prerequisites() {
     
     # Verify prerequisites
     verify_command "curl"
-    verify_command "openssl"
+    # OpenSSL uses 'version' not '--version'
+    verify_command "openssl" "version"
 }
 
 # Install .NET Core SDK
