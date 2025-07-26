@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ClaudeServerCLI.Models;
+using ClaudeBatchServer.Core.DTOs;
 
 namespace ClaudeServerCLI.Serialization;
 
@@ -8,6 +9,7 @@ namespace ClaudeServerCLI.Serialization;
 /// JSON serialization context for trim-safe serialization in CLI
 /// This eliminates IL2026 warnings when using --self-contained publishing
 /// </summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(CliConfiguration))]
 [JsonSerializable(typeof(ProfileConfiguration))]
 [JsonSerializable(typeof(Dictionary<string, ProfileConfiguration>))]
@@ -25,6 +27,20 @@ namespace ClaudeServerCLI.Serialization;
 [JsonSerializable(typeof(FileUpload))]
 [JsonSerializable(typeof(JobFile))]
 [JsonSerializable(typeof(CliJobFilter))]
+[JsonSerializable(typeof(FileUploadResponse))]
+[JsonSerializable(typeof(LoginRequest))]
+[JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(JobStatusResponse))]
+[JsonSerializable(typeof(StartJobResponse))]
+[JsonSerializable(typeof(CancelJobResponse))]
+[JsonSerializable(typeof(DeleteJobResponse))]
+[JsonSerializable(typeof(CreateJobResponse))]
+[JsonSerializable(typeof(JobListResponse))]
+[JsonSerializable(typeof(IEnumerable<JobListResponse>))]
+[JsonSerializable(typeof(IEnumerable<RepositoryInfo>))]
+[JsonSerializable(typeof(CreateJobRequest))]
+[JsonSerializable(typeof(RepositoryResponse))]
+[JsonSerializable(typeof(IEnumerable<RepositoryResponse>))]
 public partial class CliJsonSerializerContext : JsonSerializerContext
 {
 }

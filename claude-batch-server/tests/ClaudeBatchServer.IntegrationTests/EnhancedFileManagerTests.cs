@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authentication;
 using ClaudeBatchServer.Api;
 using ClaudeBatchServer.Core.DTOs;
 using DotNetEnv;
+using Xunit.Abstractions;
 
 namespace ClaudeBatchServer.IntegrationTests;
 
@@ -18,10 +19,13 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
     private readonly HttpClient _client;
     private readonly string _testRepoPath;
     private readonly string _testJobsPath;
+    private readonly ITestOutputHelper _output;
     private Guid _testJobId;
 
-    public EnhancedFileManagerTests(WebApplicationFactory<Program> factory)
+    public EnhancedFileManagerTests(WebApplicationFactory<Program> factory, ITestOutputHelper output)
     {
+        _output = output;
+        
         // Load environment variables from .env file in the project root
         var envPath = "/home/jsbattig/Dev/claude-server/claude-batch-server/.env";
         if (File.Exists(envPath))
@@ -59,7 +63,7 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
 
         _client = _factory.CreateClient();
         _client.DefaultRequestHeaders.Authorization = 
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Test");
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-valid-token-for-enhanced-file-manager-tests");
     }
 
     [Fact]
@@ -68,7 +72,42 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
         // Arrange
         await SetupTestJobWithFiles();
         
-        // Act
+        // Act - first let's see what files are returned without a mask
+        var allFilesResponse = await _client.GetAsync($"/jobs/{_testJobId}/files");
+        allFilesResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var allFiles = await allFilesResponse.Content.ReadFromJsonAsync<List<FileInfoResponse>>();
+        
+        // Debug: Log all files to understand what we have
+        _output.WriteLine($"Total files returned: {allFiles?.Count ?? 0}");
+        if (allFiles != null)
+        {
+            foreach (var file in allFiles)
+            {
+                _output.WriteLine($"File: {file.Name}, Type: {file.Type}, Path: {file.Path}");
+            }
+        }
+        
+        // Debug: Check job status to see the CowPath
+        var jobStatusResponse = await _client.GetAsync($"/jobs/{_testJobId}");
+        jobStatusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var jobStatus = await jobStatusResponse.Content.ReadFromJsonAsync<JobStatusResponse>();
+        _output.WriteLine($"Job CowPath: {jobStatus?.CowPath}");
+        
+        // Debug: Check files in src subdirectory
+        var srcFilesResponse = await _client.GetAsync($"/jobs/{_testJobId}/files?path=src");
+        if (srcFilesResponse.StatusCode == HttpStatusCode.OK)
+        {
+            var srcFiles = await srcFilesResponse.Content.ReadFromJsonAsync<List<FileInfoResponse>>();
+            _output.WriteLine($"Files in src directory: {srcFiles?.Count ?? 0}");
+            if (srcFiles != null)
+            {
+                foreach (var file in srcFiles)
+                {
+                    _output.WriteLine($"  Src file: {file.Name}, Type: {file.Type}, Path: {file.Path}");
+                }
+            }
+        }
+        
         var response = await _client.GetAsync($"/jobs/{_testJobId}/files?mask=*.js");
         
         // Assert
@@ -85,7 +124,7 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
         await SetupTestJobWithFiles();
         
         // Act
-        var response = await _client.GetAsync($"/jobs/{_testJobId}/files?mask=*.js,*.ts,*.json");
+        var response = await _client.GetAsync($"/jobs/{_testJobId}/files?mask=*.js,*.ts,*.json&type=files");
         
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -254,22 +293,26 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
         Directory.CreateDirectory(_testRepoPath);
         Directory.CreateDirectory(_testJobsPath);
 
-        // Create a test workspace directory directly
-        var jobWorkspace = Path.Combine(_testJobsPath, "test-job-workspace");
-        Directory.CreateDirectory(jobWorkspace);
+        // Create a test repository first
+        var testRepo = Path.Combine(_testRepoPath, "enhanced-test-repo");
+        Directory.CreateDirectory(testRepo);
         
-        // Create test files structure directly in job workspace
-        await File.WriteAllTextAsync(Path.Combine(jobWorkspace, "README.md"), "# Test Repository");
-        await File.WriteAllTextAsync(Path.Combine(jobWorkspace, "package.json"), """
+        // Create test files structure in the repository
+        await File.WriteAllTextAsync(Path.Combine(testRepo, "README.md"), "# Test Repository");
+        await File.WriteAllTextAsync(Path.Combine(testRepo, "package.json"), """
             {
               "name": "test-repo",
               "version": "1.0.0",
               "main": "index.js"
             }
             """);
+        // Add root-level files for the mask tests
+        await File.WriteAllTextAsync(Path.Combine(testRepo, "app.js"), "console.log('Root level JS file');");
+        await File.WriteAllTextAsync(Path.Combine(testRepo, "types.ts"), "export interface TestType {}");
+        await File.WriteAllTextAsync(Path.Combine(testRepo, "config.json"), """{"debug": true}""");
         
         // Create src directory with files
-        var srcDir = Path.Combine(jobWorkspace, "src");
+        var srcDir = Path.Combine(testRepo, "src");
         Directory.CreateDirectory(srcDir);
         await File.WriteAllTextAsync(Path.Combine(srcDir, "index.js"), "console.log('Hello World');");
         await File.WriteAllTextAsync(Path.Combine(srcDir, "utils.ts"), "export function helper() { return true; }");
@@ -281,15 +324,64 @@ public class EnhancedFileManagerTests : IClassFixture<WebApplicationFactory<Prog
         await File.WriteAllTextAsync(Path.Combine(componentsDir, "Button.js"), "export const Button = () => null;");
         
         // Create tests directory
-        var testsDir = Path.Combine(jobWorkspace, "tests");
+        var testsDir = Path.Combine(testRepo, "tests");
         Directory.CreateDirectory(testsDir);
         await File.WriteAllTextAsync(Path.Combine(testsDir, "index.test.js"), "test('basic', () => {});");
 
-        // Create a test job directly using a fake job ID
-        _testJobId = Guid.NewGuid();
+        // Create repository settings file (required by CowRepositoryService)
+        var repoSettingsPath = Path.Combine(testRepo, ".claude-batch-settings.json");
+        var settings = new
+        {
+            Name = "enhanced-test-repo",
+            GitUrl = "file://" + testRepo,
+            Description = "Test repository for enhanced file manager tests",
+            CidxAware = false,
+            CloneStatus = "completed",
+            RegisteredAt = DateTime.UtcNow,
+            LastModified = DateTime.UtcNow
+        };
+        await File.WriteAllTextAsync(repoSettingsPath, System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+
+        // Create an actual job through the API
+        var createJobRequest = new CreateJobRequest
+        {
+            Prompt = "Test prompt for enhanced file manager tests",
+            Repository = "enhanced-test-repo",
+            Options = new JobOptionsDto { Timeout = 30, CidxAware = false }
+        };
+
+        var createResponse = await _client.PostAsJsonAsync("/jobs", createJobRequest);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created, "Job creation should succeed");
         
-        // We'll mock this job's existence by creating the workspace files
-        // In a real scenario, this setup would be done by the job service
+        var jobResponse = await createResponse.Content.ReadFromJsonAsync<CreateJobResponse>();
+        jobResponse.Should().NotBeNull();
+        _testJobId = jobResponse!.JobId;
+
+        // Start the job to create the CoW workspace (required for file access)
+        var startResponse = await _client.PostAsync($"/jobs/{_testJobId}/start", null);
+        startResponse.StatusCode.Should().Be(HttpStatusCode.OK, "Job start should succeed");
+
+        // Poll until the CoW workspace is created (check for non-empty CowPath)
+        for (int i = 0; i < 20; i++) // Up to 10 seconds (20 * 500ms)
+        {
+            await Task.Delay(500);
+            
+            var statusResponse = await _client.GetAsync($"/jobs/{_testJobId}");
+            if (statusResponse.StatusCode == HttpStatusCode.OK)
+            {
+                var status = await statusResponse.Content.ReadFromJsonAsync<JobStatusResponse>();
+                if (!string.IsNullOrEmpty(status?.CowPath))
+                {
+                    _output.WriteLine($"CoW workspace ready at: {status.CowPath}");
+                    break;
+                }
+            }
+            
+            if (i == 19)
+            {
+                throw new TimeoutException("CoW workspace was not created within 10 seconds");
+            }
+        }
     }
 
     public void Dispose()

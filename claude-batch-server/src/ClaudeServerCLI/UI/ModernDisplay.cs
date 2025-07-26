@@ -1,5 +1,6 @@
 using Spectre.Console;
 using ClaudeServerCLI.Models;
+using ClaudeServerCLI.Serialization;
 using ClaudeBatchServer.Core.DTOs;
 
 namespace ClaudeServerCLI.UI;
@@ -19,11 +20,7 @@ public static class ModernDisplay
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = System.Text.Json.JsonSerializer.Serialize(jobList, new System.Text.Json.JsonSerializerOptions 
-                { 
-                    WriteIndented = true,
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-                });
+                var json = System.Text.Json.JsonSerializer.Serialize(jobList, CliJsonSerializerContext.Default.ListJobInfo);
                 Console.WriteLine(json);
                 break;
                 
@@ -86,11 +83,7 @@ public static class ModernDisplay
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = System.Text.Json.JsonSerializer.Serialize(job, new System.Text.Json.JsonSerializerOptions 
-                { 
-                    WriteIndented = true,
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-                });
+                var json = System.Text.Json.JsonSerializer.Serialize(job, CliJsonSerializerContext.Default.JobStatusResponse);
                 Console.WriteLine(json);
                 break;
                 
@@ -175,11 +168,7 @@ public static class ModernDisplay
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = System.Text.Json.JsonSerializer.Serialize(repoList, new System.Text.Json.JsonSerializerOptions 
-                { 
-                    WriteIndented = true,
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-                });
+                var json = System.Text.Json.JsonSerializer.Serialize(repoList, CliJsonSerializerContext.Default.ListRepositoryInfo);
                 Console.WriteLine(json);
                 break;
                 

@@ -35,6 +35,17 @@ public class UserManagementServiceTests : IDisposable
         }
     }
 
+    private async Task CreateEmptyAuthFiles()
+    {
+        await File.WriteAllTextAsync(_service.GetPasswdFilePath(), "");
+        await File.WriteAllTextAsync(_service.GetShadowFilePath(), "");
+    }
+
+    private async Task CreateAuthFilesWithUser(string username, string password = "testpass123")
+    {
+        await _service.AddUserAsync(username, password);
+    }
+
     [Fact]
     public void IsValidUsername_WithValidUsernames_ReturnsTrue()
     {
@@ -207,6 +218,7 @@ public class UserManagementServiceTests : IDisposable
     {
         // Arrange
         var username = "nonexistent";
+        await CreateEmptyAuthFiles(); // Create empty files so we test user existence, not file existence
 
         // Act
         var result = await _service.RemoveUserAsync(username);
@@ -265,6 +277,7 @@ public class UserManagementServiceTests : IDisposable
         // Arrange
         var username = "nonexistent";
         var password = "password123";
+        await CreateEmptyAuthFiles(); // Create empty files so we test user existence, not file existence
 
         // Act
         var result = await _service.UpdateUserPasswordAsync(username, password);
@@ -288,16 +301,21 @@ public class UserManagementServiceTests : IDisposable
     public async Task ListUsersAsync_WithMultipleUsers_ReturnsAllUsers()
     {
         // Arrange
-        await _service.AddUserAsync("alice", "password1", 1001, 1001, "/home/alice", "/bin/bash");
-        await _service.AddUserAsync("bob", "password2", 1002, 1002, "/home/bob", "/bin/zsh");
-        await _service.AddUserAsync("charlie", "password3", 1003, 1003, "/home/charlie", "/bin/fish");
+        var result1 = await _service.AddUserAsync("alice", "password1", 1001, 1001, "/home/alice", "/bin/bash");
+        var result2 = await _service.AddUserAsync("bob", "password2", 1002, 1002, "/home/bob", "/bin/zsh");
+        var result3 = await _service.AddUserAsync("charlie", "password3", 1003, 1003, "/home/charlie", "/bin/fish");
+        
+        Assert.True(result1.Success, $"Failed to add alice: {result1.Message}");
+        Assert.True(result2.Success, $"Failed to add bob: {result2.Message}");
+        Assert.True(result3.Success, $"Failed to add charlie: {result3.Message}");
 
         // Act
         var users = await _service.ListUsersAsync();
 
         // Assert
         var userList = users.ToList();
-        Assert.Equal(3, userList.Count);
+        var userNames = userList.Select(u => u.Username).ToList();
+        Assert.True(userList.Count == 3, $"Expected 3 users but got {userList.Count}. Users found: {string.Join(", ", userNames)}");
         
         var alice = userList.First(u => u.Username == "alice");
         Assert.Equal(1001, alice.Uid);
@@ -432,8 +450,10 @@ public class UserManagementServiceTests : IDisposable
         // Password hash should be different
         Assert.NotEqual(originalParts[1], updatedParts[1]);
         
-        // Last change date should be updated
-        Assert.NotEqual(originalParts[2], updatedParts[2]);
+        // Last change date should be greater than or equal (same day is acceptable)
+        var originalDate = int.Parse(originalParts[2]);
+        var updatedDate = int.Parse(updatedParts[2]);
+        Assert.True(updatedDate >= originalDate, "Updated date should be greater than or equal to original date");
         
         // Other fields should be preserved
         Assert.Equal(originalParts[3], updatedParts[3]); // min age
@@ -445,16 +465,21 @@ public class UserManagementServiceTests : IDisposable
     public async Task ListUsersAsync_ReturnsUsersInAlphabeticalOrder()
     {
         // Arrange
-        await _service.AddUserAsync("zebra", "password1");
-        await _service.AddUserAsync("alpha", "password2");
-        await _service.AddUserAsync("beta", "password3");
+        var result1 = await _service.AddUserAsync("zebra", "password1");
+        var result2 = await _service.AddUserAsync("alpha", "password2");
+        var result3 = await _service.AddUserAsync("beta", "password3");
+        
+        Assert.True(result1.Success, $"Failed to add zebra: {result1.Message}");
+        Assert.True(result2.Success, $"Failed to add alpha: {result2.Message}");
+        Assert.True(result3.Success, $"Failed to add beta: {result3.Message}");
 
         // Act
         var users = await _service.ListUsersAsync();
 
         // Assert
         var userList = users.ToList();
-        Assert.Equal(3, userList.Count);
+        var userNames = userList.Select(u => u.Username).ToList();
+        Assert.True(userList.Count == 3, $"Expected 3 users but got {userList.Count}. Users found: {string.Join(", ", userNames)}");
         Assert.Equal("alpha", userList[0].Username);
         Assert.Equal("beta", userList[1].Username);  
         Assert.Equal("zebra", userList[2].Username);

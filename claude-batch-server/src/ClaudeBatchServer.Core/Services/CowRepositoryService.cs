@@ -273,14 +273,14 @@ public class CowRepositoryService : IRepositoryService
 
         // Create initial .claude-batch-settings.json file
         var settingsPath = Path.Combine(_repositoriesPath, $"{name}.settings.json");
-        var settings = new
+        var settings = new Dictionary<string, object>
         {
-            Name = name,
-            Description = description,
-            GitUrl = gitUrl,
-            RegisteredAt = repository.RegisteredAt,
-            CloneStatus = repository.CloneStatus,
-            CidxAware = cidxAware
+            ["Name"] = name,
+            ["Description"] = description,
+            ["GitUrl"] = gitUrl,
+            ["RegisteredAt"] = repository.RegisteredAt,
+            ["CloneStatus"] = repository.CloneStatus,
+            ["CidxAware"] = cidxAware
         };
         
         await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
@@ -341,14 +341,14 @@ public class CowRepositoryService : IRepositoryService
 
                 // Create final .claude-batch-settings.json file in the repo directory
                 var repoSettingsPath = Path.Combine(repository.Path, ".claude-batch-settings.json");
-                var finalSettings = new
+                var finalSettings = new Dictionary<string, object>
                 {
-                    Name = repository.Name,
-                    Description = repository.Description,
-                    GitUrl = repository.GitUrl,
-                    RegisteredAt = repository.RegisteredAt,
-                    CloneStatus = "completed",
-                    CidxAware = cidxAware
+                    ["Name"] = repository.Name,
+                    ["Description"] = repository.Description,
+                    ["GitUrl"] = repository.GitUrl,
+                    ["RegisteredAt"] = repository.RegisteredAt,
+                    ["CloneStatus"] = "completed",
+                    ["CidxAware"] = cidxAware
                 };
                 
                 await File.WriteAllTextAsync(repoSettingsPath, JsonSerializer.Serialize(finalSettings, AppJsonSerializerContext.Default.DictionaryStringObject));

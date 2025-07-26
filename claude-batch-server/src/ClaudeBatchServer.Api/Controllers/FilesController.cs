@@ -67,11 +67,13 @@ public class FilesController : ControllerBase
         }
     }
 
-    [HttpGet("files")]
+    [HttpGet]
     public async Task<ActionResult<List<FileInfoResponse>>> GetFilesInDirectory(
         Guid jobId, 
         [FromQuery] string? path = null,
-        [FromQuery] string? mask = null)
+        [FromQuery] string? mask = null,
+        [FromQuery] string? type = null,
+        [FromQuery] int? depth = null)
     {
         try
         {
@@ -87,19 +89,71 @@ public class FilesController : ControllerBase
             if (!string.IsNullOrEmpty(mask) && !IsValidFileMask(mask))
                 return BadRequest("Invalid file mask contains dangerous characters");
 
-            var files = await _repositoryService.GetFilesInDirectoryAsync(job.CowPath, path ?? "", mask);
-            
-            if (files == null)
-                return NotFound("Path not found");
+            var response = new List<FileInfoResponse>();
 
-            var response = files.Select(f => new FileInfoResponse
+            // Handle type filtering: files, directories, or both (default)
+            bool includeFiles = type == null || type.Equals("files", StringComparison.OrdinalIgnoreCase);
+            bool includeDirectories = type == null || type.Equals("directories", StringComparison.OrdinalIgnoreCase);
+
+            if (includeFiles)
             {
-                Name = f.Name,
-                Type = f.Type,
-                Path = f.Path,
-                Size = f.Size,
-                Modified = f.Modified
-            }).ToList();
+                var files = await _repositoryService.GetFilesInDirectoryAsync(job.CowPath, path ?? "", mask);
+                if (files != null)
+                {
+                    response.AddRange(files.Select(f => new FileInfoResponse
+                    {
+                        Name = f.Name,
+                        Type = f.Type,
+                        Path = f.Path,
+                        Size = f.Size,
+                        Modified = f.Modified
+                    }));
+                }
+            }
+
+            if (includeDirectories)
+            {
+                var directories = await _repositoryService.GetDirectoriesAsync(job.CowPath, path ?? "");
+                if (directories != null)
+                {
+                    var filteredDirectories = directories.AsEnumerable();
+                    
+                    // Apply mask filtering to directories if specified
+                    if (!string.IsNullOrEmpty(mask))
+                    {
+                        var patterns = mask.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        filteredDirectories = filteredDirectories.Where(d => 
+                            patterns.Any(pattern => System.IO.Path.GetFileName(d.Name)
+                                .Equals(pattern.Replace("*", ""), StringComparison.OrdinalIgnoreCase) ||
+                                (pattern.Contains("*") && IsMatchPattern(d.Name, pattern))));
+                    }
+                    
+                    response.AddRange(filteredDirectories.Select(d => new FileInfoResponse
+                    {
+                        Name = d.Name,
+                        Type = "directory",
+                        Path = d.Path,
+                        Size = 0,
+                        Modified = d.Modified
+                    }));
+                }
+            }
+
+            // Apply depth filtering if specified
+            if (depth.HasValue && depth.Value >= 0)
+            {
+                var basePath = path ?? "";
+                var maxDepth = basePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Length + depth.Value;
+                response = response.Where(item => 
+                    item.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Length <= maxDepth
+                ).ToList();
+            }
+
+            // Return 404 if no results and path might not exist
+            if (!response.Any() && !string.IsNullOrEmpty(path))
+            {
+                return NotFound("Path not found");
+            }
 
             return Ok(response);
         }
@@ -221,5 +275,21 @@ public class FilesController : ControllerBase
             ".svg" => "image/svg+xml",
             _ => "application/octet-stream"
         };
+    }
+
+    private static bool IsMatchPattern(string fileName, string pattern)
+    {
+        // Simple wildcard matching for file patterns
+        if (pattern == "*")
+            return true;
+
+        if (pattern.StartsWith("*."))
+        {
+            var extension = pattern[2..];
+            return fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // More complex pattern matching could be added here
+        return fileName.Equals(pattern, StringComparison.OrdinalIgnoreCase);
     }
 }

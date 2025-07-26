@@ -5,6 +5,7 @@ using Spectre.Console;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeServerCLI.Services;
 using ClaudeServerCLI.Models;
+using ClaudeServerCLI.Serialization;
 using YamlDotNet.Serialization;
 
 namespace ClaudeServerCLI.Commands;
@@ -552,11 +553,7 @@ public class ReposShowCommand : AuthenticatedCommand
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = JsonSerializer.Serialize(repository, new JsonSerializerOptions 
-                { 
-                    WriteIndented = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                });
+                var json = JsonSerializer.Serialize(repository, CliJsonSerializerContext.Default.RepositoryInfo);
                 Console.WriteLine(json);
                 break;
                 

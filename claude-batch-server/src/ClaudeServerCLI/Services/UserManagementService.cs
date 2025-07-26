@@ -93,7 +93,7 @@ public class UserManagementService : IUserManagementService
             string? backupSuffix = null;
             if (File.Exists(_passwdFile) || File.Exists(_shadowFile))
             {
-                backupSuffix = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                backupSuffix = await GenerateUniqueBackupSuffixAsync();
                 await CreateBackupsAsync(backupSuffix);
             }
 
@@ -164,7 +164,7 @@ public class UserManagementService : IUserManagementService
             }
 
             // Create backups
-            var backupSuffix = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var backupSuffix = await GenerateUniqueBackupSuffixAsync();
             await CreateBackupsAsync(backupSuffix);
 
             // Remove user from passwd file
@@ -216,7 +216,7 @@ public class UserManagementService : IUserManagementService
             }
 
             // Create backup
-            var backupSuffix = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var backupSuffix = await GenerateUniqueBackupSuffixAsync();
             File.Copy(_shadowFile, $"{_shadowFile}.backup.{backupSuffix}");
 
             // Update password in shadow file
@@ -248,22 +248,23 @@ public class UserManagementService : IUserManagementService
                 return users;
             }
 
-            if (!File.Exists(_shadowFile))
+            // Read shadow entries for password info (if file exists)
+            var shadowEntries = new Dictionary<string, ShadowEntry>();
+            if (File.Exists(_shadowFile))
+            {
+                var shadowLines = await File.ReadAllLinesAsync(_shadowFile);
+                foreach (var line in shadowLines.Where(l => !string.IsNullOrWhiteSpace(l)))
+                {
+                    var entry = ParseShadowEntry(line);
+                    if (entry != null)
+                    {
+                        shadowEntries[entry.Username] = entry;
+                    }
+                }
+            }
+            else
             {
                 _logger.LogWarning("Shadow file not found: {ShadowFile}", _shadowFile);
-                return users;
-            }
-
-            // Read shadow entries for password info
-            var shadowEntries = new Dictionary<string, ShadowEntry>();
-            var shadowLines = await File.ReadAllLinesAsync(_shadowFile);
-            foreach (var line in shadowLines.Where(l => !string.IsNullOrWhiteSpace(l)))
-            {
-                var entry = ParseShadowEntry(line);
-                if (entry != null)
-                {
-                    shadowEntries[entry.Username] = entry;
-                }
             }
 
             // Read passwd entries and combine with shadow info
@@ -339,6 +340,30 @@ public class UserManagementService : IUserManagementService
 
     #region Private Methods
 
+    private async Task<string> GenerateUniqueBackupSuffixAsync()
+    {
+        var baseTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var suffix = baseTimestamp;
+        var counter = 0;
+        
+        // Check if any backup files with this suffix already exist
+        while (File.Exists($"{_passwdFile}.backup.{suffix}") || File.Exists($"{_shadowFile}.backup.{suffix}"))
+        {
+            counter++;
+            suffix = $"{baseTimestamp}_{counter:D3}";
+            
+            // Safety check to prevent infinite loop
+            if (counter > 999)
+            {
+                suffix = $"{baseTimestamp}_{Guid.NewGuid():N}";
+                break;
+            }
+        }
+        
+        await Task.CompletedTask; // Make it async for consistency
+        return suffix;
+    }
+
     private async Task<UserOperationResult> GeneratePasswordHashAsync(string password)
     {
         try
@@ -382,9 +407,19 @@ public class UserManagementService : IUserManagementService
     {
         // Generate 16-character salt similar to bash script
         using var rng = RandomNumberGenerator.Create();
-        var bytes = new byte[12];
+        var bytes = new byte[16]; // Increase to ensure we have enough characters
         rng.GetBytes(bytes);
-        return Convert.ToBase64String(bytes).Replace("=", "").Replace("+", "").Replace("/", "")[..16];
+        var base64 = Convert.ToBase64String(bytes).Replace("=", "").Replace("+", "").Replace("/", "");
+        
+        // Ensure we have at least 16 characters, pad with additional random chars if needed
+        while (base64.Length < 16)
+        {
+            var extraBytes = new byte[4];
+            rng.GetBytes(extraBytes);
+            base64 += Convert.ToBase64String(extraBytes).Replace("=", "").Replace("+", "").Replace("/", "");
+        }
+        
+        return base64[..16];
     }
 
     private async Task<UserOperationResult> TryMkpasswdAsync(string password, string salt)

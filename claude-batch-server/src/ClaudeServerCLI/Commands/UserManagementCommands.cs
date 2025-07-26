@@ -81,7 +81,7 @@ public class AddUserCommand : BaseCommand
         var shell = context.ParseResult.GetValueForOption(_shellOption);
 
         // Display user details being created
-        AnsiConsole.MarkupLine("[cyan]👤 Adding user to Claude Server authentication[/]");
+        WriteMarkup(context, "[cyan]👤 Adding user to Claude Server authentication[/]");
         
         var table = new Table()
             .RoundedBorder()
@@ -112,11 +112,11 @@ public class AddUserCommand : BaseCommand
 
         if (result.Success)
         {
-            WriteSuccess(result.Message!);
+            WriteSuccess(context, result.Message!);
             
             if (!string.IsNullOrEmpty(result.BackupFile))
             {
-                WriteInfo($"📋 {result.BackupFile}");
+                WriteInfo(context, $"📋 {result.BackupFile}");
             }
             
             AnsiConsole.WriteLine();
@@ -133,10 +133,10 @@ public class AddUserCommand : BaseCommand
         }
         else
         {
-            WriteError(result.Message!);
+            WriteError(context, result.Message!);
             if (!string.IsNullOrEmpty(result.ErrorDetails))
             {
-                AnsiConsole.MarkupLine("[dim]Details: {0}[/]", result.ErrorDetails);
+                WriteOutput(context, $"Details: {result.ErrorDetails}");
             }
             return 1;
         }
@@ -172,11 +172,11 @@ public class RemoveUserCommand : BaseCommand
         // Check if user exists first
         if (!await userService.UserExistsAsync(username))
         {
-            WriteWarning($"User '{username}' does not exist in Claude Server authentication");
+            WriteWarning(context, $"User '{username}' does not exist in Claude Server authentication");
             return 1;
         }
 
-        AnsiConsole.MarkupLine("[cyan]🗑️ Removing user from Claude Server authentication[/]");
+        WriteMarkup(context, "[cyan]🗑️ Removing user from Claude Server authentication[/]");
         AnsiConsole.MarkupLine("[blue]📊 User: [yellow]{0}[/][/]", username);
         AnsiConsole.WriteLine();
 
@@ -206,11 +206,11 @@ public class RemoveUserCommand : BaseCommand
 
         if (result.Success)
         {
-            WriteSuccess(result.Message!);
+            WriteSuccess(context, result.Message!);
             
             if (!string.IsNullOrEmpty(result.BackupFile))
             {
-                WriteInfo($"📋 {result.BackupFile}");
+                WriteInfo(context, $"📋 {result.BackupFile}");
             }
             
             AnsiConsole.WriteLine();
@@ -226,10 +226,10 @@ public class RemoveUserCommand : BaseCommand
         }
         else
         {
-            WriteError(result.Message!);
+            WriteError(context, result.Message!);
             if (!string.IsNullOrEmpty(result.ErrorDetails))
             {
-                AnsiConsole.MarkupLine("[dim]Details: {0}[/]", result.ErrorDetails);
+                WriteOutput(context, $"Details: {result.ErrorDetails}");
             }
             return 1;
         }
@@ -258,7 +258,7 @@ public class ListUsersCommand : BaseCommand
         var userService = GetRequiredService<IUserManagementService>(context);
         var detailed = context.ParseResult.GetValueForOption(_detailedOption);
 
-        AnsiConsole.MarkupLine("[cyan]👥 Claude Server Authentication Users[/]");
+        WriteMarkup(context, "[cyan]👥 Claude Server Authentication Users[/]");
         AnsiConsole.WriteLine();
 
         // Get users with progress
@@ -278,16 +278,19 @@ public class ListUsersCommand : BaseCommand
         
         if (!userList.Any())
         {
-            WriteWarning("No users found in Claude Server authentication");
-            AnsiConsole.MarkupLine("[blue]Add a user: [purple]claude-server user add <username> <password>[/][/]");
+            WriteWarning(context, "No users found in Claude Server authentication");
+            WriteMarkup(context, "[blue]Add a user: [purple]claude-server user add <username> <password>[/][/]");
             return 0;
         }
 
-        AnsiConsole.MarkupLine("[blue]📊 Total Users: [yellow]{0}[/][/]", userList.Count);
+        WriteMarkup(context, "[blue]📊 Total Users: [yellow]{0}[/][/]", userList.Count);
         AnsiConsole.WriteLine();
 
         if (detailed)
         {
+            // Write detailed headers to console for test capture
+            WriteOutput(context, "Detailed view: Username | UID | GID | Home | Shell | Last Change | Status");
+            
             // Detailed view with full information
             var table = new Table()
                 .RoundedBorder()
@@ -333,6 +336,9 @@ public class ListUsersCommand : BaseCommand
                     lastChange,
                     $"[{statusColor}]{statusText}[/]"
                 );
+                
+                // Also write plain text for test capture
+                WriteOutput(context, $"{user.Username} | {user.Uid} | {user.Gid} | {user.HomeDirectory} | {user.Shell} | {lastChange} | {statusText}");
             }
 
             AnsiConsole.Write(table);
@@ -375,6 +381,9 @@ public class ListUsersCommand : BaseCommand
                     $"[{statusColor}]{statusText}[/]",
                     lastChange
                 );
+                
+                // Also write plain text for test capture
+                WriteOutput(context, $"{user.Username} | {user.Uid} | {statusText} | {lastChange}");
             }
 
             AnsiConsole.Write(table);
@@ -414,7 +423,7 @@ public class UpdateUserCommand : BaseCommand
         var username = context.ParseResult.GetValueForArgument(_usernameArgument);
         var newPassword = context.ParseResult.GetValueForArgument(_newPasswordArgument);
 
-        AnsiConsole.MarkupLine("[cyan]🔐 Updating password for user '[yellow]{0}[/]'[/]", username);
+        WriteMarkup(context, "[cyan]🔐 Updating password for user '[yellow]{0}[/]'[/]", username);
         AnsiConsole.WriteLine();
 
         // Update password with progress
@@ -432,11 +441,11 @@ public class UpdateUserCommand : BaseCommand
 
         if (result.Success)
         {
-            WriteSuccess(result.Message!);
+            WriteSuccess(context, result.Message!);
             
             if (!string.IsNullOrEmpty(result.BackupFile))
             {
-                WriteInfo($"📋 {result.BackupFile}");
+                WriteInfo(context, $"📋 {result.BackupFile}");
             }
             
             AnsiConsole.WriteLine();
@@ -453,10 +462,10 @@ public class UpdateUserCommand : BaseCommand
         }
         else
         {
-            WriteError(result.Message!);
+            WriteError(context, result.Message!);
             if (!string.IsNullOrEmpty(result.ErrorDetails))
             {
-                AnsiConsole.MarkupLine("[dim]Details: {0}[/]", result.ErrorDetails);
+                WriteOutput(context, $"Details: {result.ErrorDetails}");
             }
             return 1;
         }

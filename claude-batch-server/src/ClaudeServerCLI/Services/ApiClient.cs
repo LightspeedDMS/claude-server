@@ -7,6 +7,7 @@ using Polly;
 using Polly.Extensions.Http;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeServerCLI.Models;
+using ClaudeServerCLI.Serialization;
 using System.Net;
 
 namespace ClaudeServerCLI.Services;
@@ -186,14 +187,14 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<StartJobResponse> StartJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Starting job: {JobId}", jobId);
-        var response = await PostAsync<object, StartJobResponse>($"jobs/{jobId}/start", new { }, cancellationToken);
+        var response = await PostAsync<object, StartJobResponse>($"jobs/{jobId}/start", new object(), cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to start job '{jobId}'");
     }
 
     public async Task<CancelJobResponse> CancelJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Cancelling job: {JobId}", jobId);
-        var response = await PostAsync<object, CancelJobResponse>($"jobs/{jobId}/cancel", new { }, cancellationToken);
+        var response = await PostAsync<object, CancelJobResponse>($"jobs/{jobId}/cancel", new object(), cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to cancel job '{jobId}'");
     }
 
@@ -238,7 +239,7 @@ public class ApiClient : IApiClient, IDisposable
 
         var response = await SendAsync($"jobs/{jobId}/files", HttpMethod.Post, content, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<FileUploadResponse>(json, _jsonOptions);
+        var result = JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.FileUploadResponse);
         return result ?? throw new InvalidOperationException($"Failed to upload file '{file.FileName}'");
     }
 
@@ -344,24 +345,66 @@ public class ApiClient : IApiClient, IDisposable
     {
         var response = await SendAsync(endpoint, HttpMethod.Get, null, cancellationToken, requireAuth);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        return JsonSerializer.Deserialize<T>(json, _jsonOptions);
+        
+        // Generic deserialization - use trim-safe contexts for known types
+        if (typeof(T) == typeof(FileUploadResponse))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.FileUploadResponse)!;
+        if (typeof(T) == typeof(JobStatusResponse))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.JobStatusResponse)!;
+        if (typeof(T) == typeof(IEnumerable<JobListResponse>))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.IEnumerableJobListResponse)!;
+        if (typeof(T) == typeof(IEnumerable<RepositoryInfo>))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.IEnumerableRepositoryInfo)!;
+        if (typeof(T) == typeof(IEnumerable<RepositoryResponse>))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.IEnumerableRepositoryResponse)!;
+        
+        // For other types, use object serialization context
+        return JsonSerializer.Deserialize<T>(json, CliJsonSerializerContext.Default.Options);
     }
 
     private async Task<TResponse?> PostAsync<TRequest, TResponse>(string endpoint, TRequest request, CancellationToken cancellationToken, bool requireAuth = true)
     {
-        var json = JsonSerializer.Serialize(request, _jsonOptions);
+        // Generic serialization - handle known types with trim-safe contexts
+        string json;
+        if (request is LoginRequest loginReq)
+            json = JsonSerializer.Serialize(loginReq, CliJsonSerializerContext.Default.LoginRequest);
+        else if (request is CreateJobRequest createJobReq)
+            json = JsonSerializer.Serialize(createJobReq, CliJsonSerializerContext.Default.CreateJobRequest);
+        else
+            json = JsonSerializer.Serialize(request, CliJsonSerializerContext.Default.Options);
+            
         var content = new StringContent(json, Encoding.UTF8, "application/json");
         
         var response = await SendAsync(endpoint, HttpMethod.Post, content, cancellationToken, requireAuth);
         var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        return JsonSerializer.Deserialize<TResponse>(responseJson, _jsonOptions);
+        
+        // Generic deserialization for response types
+        if (typeof(TResponse) == typeof(LoginResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.LoginResponse)!;
+        if (typeof(TResponse) == typeof(JobStatusResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.JobStatusResponse)!;
+        if (typeof(TResponse) == typeof(StartJobResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.StartJobResponse)!;
+        if (typeof(TResponse) == typeof(CancelJobResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.CancelJobResponse)!;
+        if (typeof(TResponse) == typeof(DeleteJobResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.DeleteJobResponse)!;
+        if (typeof(TResponse) == typeof(CreateJobResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.CreateJobResponse)!;
+        
+        return JsonSerializer.Deserialize<TResponse>(responseJson, CliJsonSerializerContext.Default.Options);
     }
 
     private async Task<T?> DeleteAsync<T>(string endpoint, CancellationToken cancellationToken, bool requireAuth = true)
     {
         var response = await SendAsync(endpoint, HttpMethod.Delete, null, cancellationToken, requireAuth);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        return JsonSerializer.Deserialize<T>(json, _jsonOptions);
+        
+        // Generic deserialization for delete responses
+        if (typeof(T) == typeof(JobStatusResponse))
+            return (T)(object)JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.JobStatusResponse)!;
+        
+        return JsonSerializer.Deserialize<T>(json, CliJsonSerializerContext.Default.Options);
     }
 
     private async Task<HttpResponseMessage> SendAsync(string endpoint, HttpMethod method, HttpContent? content, CancellationToken cancellationToken, bool requireAuth = true)

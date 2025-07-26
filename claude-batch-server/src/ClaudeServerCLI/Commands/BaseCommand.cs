@@ -97,6 +97,58 @@ public abstract class BaseCommand : Command
         AnsiConsole.MarkupLine("[blue]ℹ[/] {0}", message);
     }
 
+    // Context-aware versions for tests
+    protected static void WriteSuccess(InvocationContext context, string message)
+    {
+        WriteMarkup(context, "[green]✓[/] {0}", message);
+    }
+
+    protected static void WriteError(InvocationContext context, string message)
+    {
+        WriteMarkup(context, "[red]✗[/] {0}", message);
+    }
+
+    protected static void WriteWarning(InvocationContext context, string message)
+    {
+        WriteMarkup(context, "[yellow]⚠[/] {0}", message);
+    }
+
+    protected static void WriteInfo(InvocationContext context, string message)
+    {
+        WriteMarkup(context, "[blue]ℹ[/] {0}", message);
+    }
+
+    /// <summary>
+    /// Write to both AnsiConsole and System.CommandLine console (for tests)
+    /// </summary>
+    protected static void WriteOutput(InvocationContext context, string message)
+    {
+        // Write to AnsiConsole for rich UI
+        AnsiConsole.WriteLine(message);
+        
+        // Also write to System.CommandLine console for test capture
+        context.Console.WriteLine(message);
+    }
+
+    /// <summary>
+    /// Write markup to both AnsiConsole and System.CommandLine console (for tests)
+    /// </summary>
+    protected static void WriteMarkup(InvocationContext context, string markup, params object[] args)
+    {
+        // Write to AnsiConsole with markup
+        AnsiConsole.MarkupLine(markup, args);
+        
+        // Write plain text version to System.CommandLine console for test capture
+        var plainText = RemoveMarkup(string.Format(markup, args));
+        context.Console.WriteLine(plainText);
+    }
+
+    private static string RemoveMarkup(string text)
+    {
+        // Simple markup removal - remove [color] tags
+        return System.Text.RegularExpressions.Regex.Replace(text, @"\[[^\]]*\]", "");
+    }
+
     protected static async Task<bool> EnsureAuthenticatedAsync(InvocationContext context, string profile = "default")
     {
         var authService = GetRequiredService<IAuthService>(context);
