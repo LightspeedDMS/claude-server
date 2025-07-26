@@ -379,7 +379,7 @@ dry_run_analyze_workspace() {
     dry_run_check "Checking Voyage AI API key configuration"
     local config_file="/opt/claude-batch-server/appsettings.json"
     local config_key=""
-    local env_key="$VOYAGE_API_KEY"
+    local env_key="${VOYAGE_API_KEY:-}"
     local shell_key=""
     
     # Check each location
@@ -456,7 +456,7 @@ dry_run_analyze_services() {
     if [[ -f "/proc/filesystems" ]] && grep -q "btrfs\|zfs\|xfs" /proc/filesystems; then
         dry_run_result "✓ CoW-capable filesystem detected"
     else
-        dry_run_result "⚠ Limited CoW support - will use fallback methods"
+        dry_run_result "⚠ Limited CoW support - will use full copy fallback (slower but safe)"
     fi
     
     dry_run_check "Checking logging configuration"
@@ -1633,7 +1633,7 @@ check_voyage_api_key() {
     fi
     
     # Check environment variable
-    key_from_env="$VOYAGE_API_KEY"
+    key_from_env="${VOYAGE_API_KEY:-}"
     
     # Check shell configuration files
     local key_from_shell=""
@@ -1766,7 +1766,7 @@ sync_voyage_api_key() {
     fi
     
     # Sync to environment variable if missing
-    if [[ "$VOYAGE_API_KEY" != "$api_key" ]]; then
+    if [[ "${VOYAGE_API_KEY:-}" != "$api_key" ]]; then
         log "Setting VOYAGE_API_KEY environment variable"
         export VOYAGE_API_KEY="$api_key"
         synced=true
@@ -1811,9 +1811,9 @@ configure_voyage_api_key() {
     fi
     
     # Check environment variable if not found in config
-    if [[ -z "$api_key" && -n "$VOYAGE_API_KEY" ]]; then
-        if validate_voyage_api_key "$VOYAGE_API_KEY"; then
-            api_key="$VOYAGE_API_KEY"
+    if [[ -z "$api_key" && -n "${VOYAGE_API_KEY:-}" ]]; then
+        if validate_voyage_api_key "${VOYAGE_API_KEY:-}"; then
+            api_key="${VOYAGE_API_KEY:-}"
             log "✓ Found valid Voyage AI API key in environment variable"
         fi
     fi
@@ -1883,7 +1883,7 @@ configure_cow() {
             fi
             ;;
         *)
-            warn "Filesystem $fs_type may not support CoW - will use hardlink fallback"
+            warn "Filesystem $fs_type may not support CoW - will use full copy fallback (slower but safe)"
             ;;
     esac
     
