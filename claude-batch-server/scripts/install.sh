@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-LOG_FILE="/tmp/claude-batch-install.log"
+LOG_FILE="/tmp/claude-batch-install-$(date +%Y%m%d-%H%M%S).log"
 BACKUP_BASE_DIR="/var/backups/claude-batch-server"
 BACKUP_DIR=""
 
@@ -34,19 +34,35 @@ SSL_CN=""
 
 # Logging functions
 log() {
-    echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$LOG_FILE"
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        echo -e "${GREEN}[INFO]${NC} $1"
+    else
+        echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"
+    fi
 }
 
 warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE"
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        echo -e "${YELLOW}[WARN]${NC} $1"
+    else
+        echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"
+    fi
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        echo -e "${RED}[ERROR]${NC} $1"
+    else
+        echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"
+    fi
 }
 
 debug() {
-    echo -e "${BLUE}[DEBUG]${NC} $1" | tee -a "$LOG_FILE"
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        echo -e "${BLUE}[DEBUG]${NC} $1"
+    else
+        echo -e "${BLUE}[DEBUG]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${BLUE}[DEBUG]${NC} $1"
+    fi
 }
 
 # Dry-run specific logging functions
@@ -1834,10 +1850,16 @@ EOF
 # Main installation function
 main() {
     log "Starting Claude Batch Server installation..."
-    log "Log file: $LOG_FILE"
     
-    # Parse command line arguments
+    # Parse command line arguments first to set DRY_RUN_MODE
     parse_arguments "$@"
+    
+    # Only show log file in non-dry-run mode and ensure it's writable
+    if [[ "$DRY_RUN_MODE" != "true" ]]; then
+        # Create log file with proper permissions
+        touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/claude-batch-install-fallback.log"
+        log "Log file: $LOG_FILE"
+    fi
     
     # Check prerequisites
     detect_os
