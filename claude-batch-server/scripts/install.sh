@@ -17,12 +17,25 @@ PRODUCTION_MODE=false
 DEVELOPMENT_MODE=false
 DRY_RUN_MODE=false
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Colors for output - detect if colors should be used
+if [[ -t 1 ]] && [[ "$TERM" != "dumb" ]] && command -v tput >/dev/null 2>&1 && tput colors >/dev/null 2>&1; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    PURPLE='\033[0;35m'
+    CYAN='\033[0;36m'
+    NC='\033[0m' # No Color
+else
+    # Disable colors for non-interactive terminals or terminals without color support
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    PURPLE=''
+    CYAN=''
+    NC=''
+fi
 
 # SSL Configuration (will be set interactively or via parameters)
 SSL_COUNTRY=""
@@ -1746,19 +1759,17 @@ print_usage() {
     local external_ip=$(echo "$network_info" | grep "EXTERNAL_IP=" | cut -d'=' -f2)
     local all_ips=$(echo "$network_info" | grep "ALL_IPS=" | cut -d'=' -f2)
     
+    printf "\n%b🎉 Claude Batch Server Installation Complete!%b\n\n" "$GREEN" "$NC"
+    printf "%bInstallation Details:%b\n" "$YELLOW" "$NC"
+    printf "- Mode: %s\n" "$([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")"
+    printf "- OS: %s\n" "$(lsb_release -d 2>/dev/null | cut -f2 || echo "$OS_ID $VERSION_ID")"
+    printf "- Backup Directory: %s\n\n" "$BACKUP_DIR"
+    printf "%b📡 Server Access Information:%b\n" "$YELLOW" "$NC"
+    printf "- Primary IP: %b%s%b\n" "$BLUE" "$primary_ip" "$NC"
+    [ -n "$external_ip" ] && printf "- External IP: %b%s%b\n" "$BLUE" "$external_ip" "$NC"
+    printf "- Local Access: %bhttp://localhost%s%b\n\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo " (redirects to HTTPS)")" "$NC"
+    
     cat << EOF
-
-${GREEN}🎉 Claude Batch Server Installation Complete!${NC}
-
-${YELLOW}Installation Details:${NC}
-- Mode: $([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")
-- OS: $(lsb_release -d 2>/dev/null | cut -f2 || echo "$OS_ID $VERSION_ID")
-- Backup Directory: $BACKUP_DIR
-
-${YELLOW}📡 Server Access Information:${NC}
-- Primary IP: ${BLUE}$primary_ip${NC}$([ -n "$external_ip" ] && echo "
-- External IP: ${BLUE}$external_ip${NC}")
-- Local Access: ${BLUE}http://localhost$([ "$PRODUCTION_MODE" == "true" ] && echo " (redirects to HTTPS)")${NC}
 
 ${YELLOW}🚀 Essential Setup Steps:${NC}
 
