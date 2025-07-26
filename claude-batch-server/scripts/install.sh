@@ -1383,13 +1383,46 @@ build_web_ui() {
     
     cd "$web_ui_dir"
     
-    # Install npm dependencies
-    log "Installing web UI dependencies..."
-    npm install
+    # Check if npm dependencies need to be installed (idempotent)
+    local package_json_hash=""
+    local node_modules_hash=""
+    if [[ -f "package.json" ]]; then
+        package_json_hash=$(md5sum package.json | cut -d' ' -f1)
+    fi
+    if [[ -f "node_modules/.install-hash" ]]; then
+        node_modules_hash=$(cat node_modules/.install-hash)
+    fi
     
-    # Build the web UI
-    log "Building web UI with Vite..."
-    npm run build
+    if [[ ! -d "node_modules" || "$package_json_hash" != "$node_modules_hash" ]]; then
+        log "Installing web UI dependencies..."
+        npm install
+        # Store hash to track when dependencies were last installed
+        echo "$package_json_hash" > node_modules/.install-hash
+        log "Web UI dependencies installed"
+    else
+        log "Web UI dependencies already up to date"
+    fi
+    
+    # Check if build is needed (idempotent)
+    local build_needed=false
+    if [[ ! -d "dist" || ! -f "dist/index.html" ]]; then
+        build_needed=true
+        log "Build needed - dist directory missing"
+    else
+        # Check if source files are newer than dist
+        if [[ "src" -nt "dist" || "index.html" -nt "dist" || "package.json" -nt "dist" ]]; then
+            build_needed=true
+            log "Build needed - source files newer than dist"
+        else
+            log "Web UI build already up to date"
+        fi
+    fi
+    
+    if [[ "$build_needed" == "true" ]]; then
+        log "Building web UI with Vite..."
+        npm run build
+        log "Web UI build completed"
+    fi
     
     # Verify build output exists
     if [[ ! -d "dist" ]] || [[ ! -f "dist/index.html" ]]; then
@@ -1397,31 +1430,73 @@ build_web_ui() {
         exit 1
     fi
     
+    # Handle running service during deployment
+    local service_was_running=false
+    if sudo systemctl is-active --quiet claude-batch-server 2>/dev/null; then
+        service_was_running=true
+        log "Claude Batch Server service is running, stopping for deployment..."
+        sudo systemctl stop claude-batch-server
+    fi
+    
     # Copy built web UI to API wwwroot directory
     local wwwroot_dir="$PROJECT_DIR/src/ClaudeBatchServer.Api/wwwroot"
-    log "Deploying web UI to API wwwroot directory: $wwwroot_dir"
+    local deployment_needed=false
     
-    # Create wwwroot directory if it doesn't exist
-    mkdir -p "$wwwroot_dir"
-    
-    # Remove existing web UI files (but keep any API-specific files)
-    if [[ -f "$wwwroot_dir/index.html" ]]; then
-        rm -f "$wwwroot_dir/index.html"
-    fi
-    if [[ -d "$wwwroot_dir/assets" ]]; then
-        rm -rf "$wwwroot_dir/assets"
-    fi
-    
-    # Copy new build files
-    cp -r dist/* "$wwwroot_dir/"
-    
-    # Verify deployment
+    # Check if deployment is needed (idempotent)
     if [[ ! -f "$wwwroot_dir/index.html" ]]; then
-        error "Web UI deployment failed - index.html not found in wwwroot"
-        exit 1
+        deployment_needed=true
+        log "Deployment needed - web UI not found in wwwroot"
+    else
+        # Compare build timestamp with deployed files
+        if [[ "dist/index.html" -nt "$wwwroot_dir/index.html" ]]; then
+            deployment_needed=true
+            log "Deployment needed - build newer than deployed files"
+        else
+            log "Web UI deployment already up to date"
+        fi
     fi
     
-    log "Web UI built and deployed successfully"
+    if [[ "$deployment_needed" == "true" ]]; then
+        log "Deploying web UI to API wwwroot directory: $wwwroot_dir"
+        
+        # Create wwwroot directory if it doesn't exist
+        mkdir -p "$wwwroot_dir"
+        
+        # Remove existing web UI files (but keep any API-specific files)
+        if [[ -f "$wwwroot_dir/index.html" ]]; then
+            rm -f "$wwwroot_dir/index.html"
+        fi
+        if [[ -d "$wwwroot_dir/assets" ]]; then
+            rm -rf "$wwwroot_dir/assets"
+        fi
+        
+        # Copy new build files
+        cp -r dist/* "$wwwroot_dir/"
+        
+        # Verify deployment
+        if [[ ! -f "$wwwroot_dir/index.html" ]]; then
+            error "Web UI deployment failed - index.html not found in wwwroot"
+            exit 1
+        fi
+        
+        log "Web UI deployed successfully"
+    fi
+    
+    # Restart service if it was running
+    if [[ "$service_was_running" == "true" ]]; then
+        log "Restarting Claude Batch Server service..."
+        sudo systemctl start claude-batch-server
+        
+        # Wait a moment and verify service started
+        sleep 2
+        if sudo systemctl is-active --quiet claude-batch-server; then
+            log "Claude Batch Server service restarted successfully"
+        else
+            error "Failed to restart Claude Batch Server service"
+            sudo systemctl status claude-batch-server
+            exit 1
+        fi
+    fi
     
     # Return to project directory
     cd "$PROJECT_DIR"
