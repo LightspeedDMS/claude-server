@@ -1815,58 +1815,58 @@ $(echo -e "${BLUE}Option 2: Docker Compose (Alternative)${NC}")
 If you prefer containerized deployment:
 
 • Navigate to project directory:
-  ${BLUE}cd $PROJECT_DIR${NC}
+  $(echo -e "${BLUE}cd $PROJECT_DIR${NC}")
 
 • Configure Docker environment:
-  ${BLUE}cp docker/.env.example docker/.env${NC}
-  ${BLUE}nano docker/.env${NC}
+  $(echo -e "${BLUE}cp docker/.env.example docker/.env${NC}")
+  $(echo -e "${BLUE}nano docker/.env${NC}")
 
 • Start with Docker Compose:
-  ${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}
+  $(echo -e "${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}")
 
 • View container logs:
-  ${BLUE}docker logs claude-batch-server -f${NC}
+  $(echo -e "${BLUE}docker logs claude-batch-server -f${NC}")
 
 • Stop containers:
-  ${BLUE}docker compose -f docker/docker-compose.yml down${NC}
+  $(echo -e "${BLUE}docker compose -f docker/docker-compose.yml down${NC}")
 
-${BLUE}Option 3: Manual Development Mode${NC}
+$(echo -e "${BLUE}Option 3: Manual Development Mode${NC}")
 For development and testing:
 
 • Navigate to API directory:
-  ${BLUE}cd $PROJECT_DIR/src/ClaudeBatchServer.Api${NC}
+  $(echo -e "${BLUE}cd $PROJECT_DIR/src/ClaudeBatchServer.Api${NC}")
 
 • Run directly with .NET:
-  ${BLUE}dotnet run${NC}
+  $(echo -e "${BLUE}dotnet run${NC}")
 
 • Or build and run:
-  ${BLUE}dotnet build && dotnet run --project ClaudeBatchServer.Api${NC}
+  $(echo -e "${BLUE}dotnet build && dotnet run --project ClaudeBatchServer.Api${NC}")
 
-${YELLOW}⚙️ Configuration:${NC}
+$(echo -e "${YELLOW}⚙️ Configuration:${NC}")
 
-• System service config: ${BLUE}/etc/claude-batch-server.env${NC}
-• Docker config: ${BLUE}$PROJECT_DIR/docker/.env${NC}
-• Development config: ${BLUE}$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.Development.json${NC}
+• System service config: $(echo -e "${BLUE}/etc/claude-batch-server.env${NC}")
+• Docker config: $(echo -e "${BLUE}$PROJECT_DIR/docker/.env${NC}")
+• Development config: $(echo -e "${BLUE}$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.Development.json${NC}")
 
-${YELLOW}🛠️ Server Management:${NC}
+$(echo -e "${YELLOW}🛠️ Server Management:${NC}")
 
 • View server logs:
-  ${BLUE}sudo journalctl -u claude-batch-server -f${NC}
+  $(echo -e "${BLUE}sudo journalctl -u claude-batch-server -f${NC}")
 
 • Use the CLI tool:
-  ${BLUE}claude-server --help${NC}
-  ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}
+  $(echo -e "${BLUE}claude-server --help${NC}")
+  $(echo -e "${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}")
 
 • Add users (development mode):
-  ${BLUE}claude-server user add <username> <password>${NC}
+  $(echo -e "${BLUE}claude-server user add <username> <password>${NC}")
 
-${YELLOW}👥 User Authentication Management:${NC}
+$(echo -e "${YELLOW}👥 User Authentication Management:${NC}")
 
 • Add a new user:
-  ${BLUE}claude-server user add myuser mypassword123${NC}
+  $(echo -e "${BLUE}claude-server user add myuser mypassword123${NC}")
 
 • List all users:
-  ${BLUE}claude-server user list${NC}
+  $(echo -e "${BLUE}claude-server user list${NC}")
   ${BLUE}claude-server user list --detailed${NC}
 
 • Update user password:
