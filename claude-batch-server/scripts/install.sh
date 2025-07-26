@@ -48,17 +48,17 @@ SSL_CN=""
 # Logging functions
 log() {
     if [[ "$DRY_RUN_MODE" == "true" ]]; then
-        echo -e "${GREEN}[INFO]${NC} $1"
+        echo -e "$(echo -e "${GREEN}[INFO]${NC}") $1"
     else
-        echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"
+        echo -e "$(echo -e "${GREEN}[INFO]${NC}") $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "$(echo -e "${GREEN}[INFO]${NC}") $1"
     fi
 }
 
 warn() {
     if [[ "$DRY_RUN_MODE" == "true" ]]; then
-        echo -e "${YELLOW}[WARN]${NC} $1"
+        echo -e "$(echo -e "${YELLOW}[WARN]${NC}") $1"
     else
-        echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"
+        echo -e "$(echo -e "${YELLOW}[WARN]${NC}") $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "$(echo -e "${YELLOW}[WARN]${NC}") $1"
     fi
 }
 
@@ -72,30 +72,30 @@ error() {
 
 debug() {
     if [[ "$DRY_RUN_MODE" == "true" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "$(echo -e "${BLUE}[DEBUG]${NC}") $1"
     else
-        echo -e "${BLUE}[DEBUG]${NC} $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "$(echo -e "${BLUE}[DEBUG]${NC}") $1" | tee -a "$LOG_FILE" 2>/dev/null || echo -e "$(echo -e "${BLUE}[DEBUG]${NC}") $1"
     fi
 }
 
 # Dry-run specific logging functions
 dry_run_action() {
-    echo -e "${YELLOW}[DRY-RUN]${NC} Would execute: $1"
+    echo -e "$(echo -e "${YELLOW}[DRY-RUN]${NC}") Would execute: $1"
 }
 
 dry_run_check() {
-    echo -e "${BLUE}[CHECK]${NC} $1"
+    echo -e "$(echo -e "${BLUE}[CHECK]${NC}") $1"
 }
 
 dry_run_result() {
-    echo -e "${GREEN}[RESULT]${NC} $1"
+    echo -e "$(echo -e "${GREEN}[RESULT]${NC}") $1"
 }
 
 # Comprehensive dry-run analysis
 perform_dry_run() {
-    echo -e "${GREEN}=== Claude Batch Server Installation Dry-Run Analysis ===${NC}"
-    echo -e "${YELLOW}Mode:${NC} $([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")"
-    echo -e "${YELLOW}OS:${NC} $OS_ID $VERSION_ID"
+    echo -e "$(echo -e "${GREEN}=== Claude Batch Server Installation Dry-Run Analysis ===${NC}")"
+    echo -e "$(echo -e "${YELLOW}Mode:${NC}") $([ "$PRODUCTION_MODE" == "true" ] && echo "Production" || echo "Development")"
+    echo -e "$(echo -e "${YELLOW}OS:${NC}") $OS_ID $VERSION_ID"
     echo ""
     
     # System analysis
@@ -112,14 +112,14 @@ perform_dry_run() {
     
     dry_run_analyze_cli_tool
     
-    echo -e "\n${GREEN}=== Summary ===${NC}"
+    echo -e "\n$(echo -e "${GREEN}=== Summary ===${NC}")"
     echo "The installation would perform the above actions based on the current system state."
     echo "Run without --dry-run to execute the installation."
 }
 
 # Analyze system requirements
 dry_run_analyze_system() {
-    echo -e "${BLUE}=== System Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== System Analysis ===${NC}")"
     
     dry_run_check "Checking sudo privileges"
     if [[ $EUID -eq 0 ]]; then
@@ -152,7 +152,7 @@ dry_run_analyze_system() {
 
 # Analyze package dependencies
 dry_run_analyze_dependencies() {
-    echo -e "${BLUE}=== Dependencies Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== Dependencies Analysis ===${NC}")"
     
     local packages=()
     case "$OS_ID" in
@@ -214,7 +214,7 @@ dry_run_analyze_dependencies() {
 
 # Analyze Docker installation
 dry_run_analyze_docker() {
-    echo -e "${BLUE}=== Docker Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== Docker Analysis ===${NC}")"
     
     dry_run_check "Checking Docker Engine"
     if command -v docker &>/dev/null; then
@@ -257,7 +257,7 @@ dry_run_analyze_docker() {
 
 # Analyze .NET installation
 dry_run_analyze_dotnet() {
-    echo -e "${BLUE}=== .NET SDK Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== .NET SDK Analysis ===${NC}")"
     
     dry_run_check "Checking .NET SDK"
     if command -v dotnet &>/dev/null; then
@@ -296,7 +296,7 @@ dry_run_analyze_dotnet() {
 
 # Analyze workspace and application
 dry_run_analyze_workspace() {
-    echo -e "${BLUE}=== Workspace & Application Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== Workspace & Application Analysis ===${NC}")"
     
     dry_run_check "Checking workspace directories"
     for dir in "/workspace" "/workspace/repos" "/workspace/jobs" "/var/log/claude-batch-server"; do
@@ -339,7 +339,7 @@ dry_run_analyze_workspace() {
 
 # Analyze service dependencies
 dry_run_analyze_services() {
-    echo -e "${BLUE}=== Service Dependencies Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== Service Dependencies Analysis ===${NC}")"
     
     dry_run_check "Checking Copy-on-Write filesystem support"
     if [[ -f "/proc/filesystems" ]] && grep -q "btrfs\|zfs\|xfs" /proc/filesystems; then
@@ -360,7 +360,7 @@ dry_run_analyze_services() {
 
 # Analyze production-specific components
 dry_run_analyze_production() {
-    echo -e "${BLUE}=== Production Components Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== Production Components Analysis ===${NC}")"
     
     dry_run_check "Checking nginx"
     if command -v nginx &>/dev/null; then
@@ -459,7 +459,7 @@ dry_run_analyze_production() {
 
 # Analyze CLI tool installation
 dry_run_analyze_cli_tool() {
-    echo -e "${BLUE}=== CLI Tool Analysis ===${NC}"
+    echo -e "$(echo -e "${BLUE}=== CLI Tool Analysis ===${NC}")"
     
     dry_run_check "Checking claude-server CLI tool"
     if [[ -f "/usr/local/bin/claude-server" ]]; then
@@ -1132,7 +1132,7 @@ EOF
             chmod +x /tmp/claude-path-setup.sh
             
             log "💡 To use 'claude' immediately after this script finishes:"
-            log "   Run: ${BLUE}source /tmp/claude-path-setup.sh${NC}"
+            log "   Run: $(echo -e "${BLUE}source /tmp/claude-path-setup.sh${NC}")"
         fi
     else
         warn "Claude Code CLI installation may have failed, but continuing..."
@@ -1535,6 +1535,31 @@ EOF
 create_systemd_service() {
     log "Creating systemd service..."
     
+    # Detect actual dotnet path
+    local dotnet_path
+    if command -v dotnet >/dev/null 2>&1; then
+        dotnet_path=$(which dotnet)
+        log "Detected dotnet at: $dotnet_path"
+    else
+        error "dotnet not found in PATH. Please install .NET 8.0 SDK first."
+        exit 1
+    fi
+    
+    # Determine DOTNET_ROOT from dotnet path
+    local dotnet_root
+    if [[ "$dotnet_path" == */bin/dotnet ]]; then
+        # Standard system installation (e.g., /usr/bin/dotnet)
+        dotnet_root="${dotnet_path%/bin/dotnet}"
+    elif [[ "$dotnet_path" == */.dotnet/dotnet ]]; then
+        # User installation (e.g., /home/user/.dotnet/dotnet)
+        dotnet_root="${dotnet_path%/dotnet}"
+    else
+        # Fallback - assume parent directory
+        dotnet_root="$(dirname "$dotnet_path")"
+    fi
+    
+    log "Using DOTNET_ROOT: $dotnet_root"
+    
     local service_file="/etc/systemd/system/claude-batch-server.service"
     local service_changed=true
     local service_hash=""
@@ -1559,13 +1584,13 @@ Type=notify
 User=root
 Group=root
 WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api
-ExecStart=/usr/local/bin/dotnet ClaudeBatchServer.Api.dll
+ExecStart=$dotnet_path ClaudeBatchServer.Api.dll
 Restart=always
 RestartSec=10
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
-Environment=DOTNET_ROOT=/root/.dotnet
-Environment=PATH=/root/.dotnet:/usr/local/bin:/usr/bin:/bin
+Environment=DOTNET_ROOT=$dotnet_root
+Environment=PATH=$dotnet_root:$dotnet_root/bin:/usr/local/bin:/usr/bin:/bin
 
 # Security settings
 NoNewPrivileges=true
@@ -1811,74 +1836,74 @@ print_usage() {
     printf "  %bsudo systemctl restart claude-batch-server%b\n\n" "$BLUE" "$NC"
 
     cat << EOF
-$(echo -e "${BLUE}Option 2: Docker Compose (Alternative)${NC}")
+$(echo -e "$(echo -e "${BLUE}Option 2: Docker Compose (Alternative)${NC}")")
 If you prefer containerized deployment:
 
 • Navigate to project directory:
   $(echo -e "${BLUE}cd $PROJECT_DIR${NC}")
 
 • Configure Docker environment:
-  $(echo -e "${BLUE}cp docker/.env.example docker/.env${NC}")
-  $(echo -e "${BLUE}nano docker/.env${NC}")
+  $(echo -e "$(echo -e "${BLUE}cp docker/.env.example docker/.env${NC}")")
+  $(echo -e "$(echo -e "${BLUE}nano docker/.env${NC}")")
 
 • Start with Docker Compose:
-  $(echo -e "${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}")
+  $(echo -e "$(echo -e "${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}")")
 
 • View container logs:
-  $(echo -e "${BLUE}docker logs claude-batch-server -f${NC}")
+  $(echo -e "$(echo -e "${BLUE}docker logs claude-batch-server -f${NC}")")
 
 • Stop containers:
-  $(echo -e "${BLUE}docker compose -f docker/docker-compose.yml down${NC}")
+  $(echo -e "$(echo -e "${BLUE}docker compose -f docker/docker-compose.yml down${NC}")")
 
-$(echo -e "${BLUE}Option 3: Manual Development Mode${NC}")
+$(echo -e "$(echo -e "${BLUE}Option 3: Manual Development Mode${NC}")")
 For development and testing:
 
 • Navigate to API directory:
   $(echo -e "${BLUE}cd $PROJECT_DIR/src/ClaudeBatchServer.Api${NC}")
 
 • Run directly with .NET:
-  $(echo -e "${BLUE}dotnet run${NC}")
+  $(echo -e "$(echo -e "${BLUE}dotnet run${NC}")")
 
 • Or build and run:
-  $(echo -e "${BLUE}dotnet build && dotnet run --project ClaudeBatchServer.Api${NC}")
+  $(echo -e "$(echo -e "${BLUE}dotnet build && dotnet run --project ClaudeBatchServer.Api${NC}")")
 
-$(echo -e "${YELLOW}⚙️ Configuration:${NC}")
+$(echo -e "$(echo -e "${YELLOW}⚙️ Configuration:${NC}")")
 
-• System service config: $(echo -e "${BLUE}/etc/claude-batch-server.env${NC}")
+• System service config: $(echo -e "$(echo -e "${BLUE}/etc/claude-batch-server.env${NC}")")
 • Docker config: $(echo -e "${BLUE}$PROJECT_DIR/docker/.env${NC}")
 • Development config: $(echo -e "${BLUE}$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.Development.json${NC}")
 
-$(echo -e "${YELLOW}🛠️ Server Management:${NC}")
+$(echo -e "$(echo -e "${YELLOW}🛠️ Server Management:${NC}")")
 
 • View server logs:
-  $(echo -e "${BLUE}sudo journalctl -u claude-batch-server -f${NC}")
+  $(echo -e "$(echo -e "${BLUE}sudo journalctl -u claude-batch-server -f${NC}")")
 
 • Use the CLI tool:
-  $(echo -e "${BLUE}claude-server --help${NC}")
+  $(echo -e "$(echo -e "${BLUE}claude-server --help${NC}")")
   $(echo -e "${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s")${NC}")
 
 • Add users (development mode):
-  $(echo -e "${BLUE}claude-server user add <username> <password>${NC}")
+  $(echo -e "$(echo -e "${BLUE}claude-server user add <username> <password>${NC}")")
 
-$(echo -e "${YELLOW}👥 User Authentication Management:${NC}")
+$(echo -e "$(echo -e "${YELLOW}👥 User Authentication Management:${NC}")")
 
 • Add a new user:
-  $(echo -e "${BLUE}claude-server user add myuser mypassword123${NC}")
+  $(echo -e "$(echo -e "${BLUE}claude-server user add myuser mypassword123${NC}")")
 
 • List all users:
-  $(echo -e "${BLUE}claude-server user list${NC}")
-  ${BLUE}claude-server user list --detailed${NC}
+  $(echo -e "$(echo -e "${BLUE}claude-server user list${NC}")")
+  $(echo -e "$(echo -e "${BLUE}claude-server user list --detailed${NC}")")
 
 • Update user password:
-  ${BLUE}claude-server user update myuser newpassword456${NC}
+  $(echo -e "$(echo -e "${BLUE}claude-server user update myuser newpassword456${NC}")")
 
 • Remove a user:
-  ${BLUE}claude-server user remove myuser${NC}
+  $(echo -e "$(echo -e "${BLUE}claude-server user remove myuser${NC}")")
 
 • Login via CLI:
-  ${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}
+  $(echo -e "${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}")
 
-${YELLOW}🧪 Testing Your Installation:${NC}
+$(echo -e "$(echo -e "${YELLOW}🧪 Testing Your Installation:${NC}")")
 
 • Test API health:
   ${BLUE}curl -f http://$primary_ip:5000/health${NC}
@@ -1895,20 +1920,20 @@ EOF
 
 if [[ "$PRODUCTION_MODE" == "true" ]]; then
     cat << EOF
-${YELLOW}🔒 Production Mode - Additional Information:${NC}
+$(echo -e "${YELLOW}🔒 Production Mode - Additional Information:${NC}")
 
-${BLUE}Access URLs:${NC}
+$(echo -e "${BLUE}Access URLs:${NC}")
 • HTTPS (recommended): ${BLUE}https://$primary_ip/${NC}$([ -n "$external_ip" ] && echo "
 • External HTTPS: ${BLUE}https://$external_ip/${NC}")
 • HTTP (redirects to HTTPS): ${BLUE}http://$primary_ip/${NC}
 • Direct API: ${BLUE}http://$primary_ip:5000/${NC}
 
-${BLUE}SSL Certificate:${NC}
-• Certificate: ${BLUE}/etc/ssl/claude-batch-server/server.crt${NC}
-• Private Key: ${BLUE}/etc/ssl/claude-batch-server/server.key${NC}
+$(echo -e "${BLUE}SSL Certificate:${NC}")
+• Certificate: $(echo -e "${BLUE}/etc/ssl/claude-batch-server/server.crt${NC}")
+• Private Key: $(echo -e "${BLUE}/etc/ssl/claude-batch-server/server.key${NC}")
 • Valid for: ${BLUE}$SSL_CN${NC}
 
-${BLUE}Security Status:${NC}
+$(echo -e "${BLUE}Security Status:${NC}")
 EOF
     case "$OS_ID" in
         "rocky"|"rhel"|"centos")
@@ -1922,7 +1947,7 @@ EOF
     esac
     cat << EOF
 
-${YELLOW}⚠️  Production Checklist:${NC}
+$(echo -e "${YELLOW}⚠️  Production Checklist:${NC}")
 □ Update SSL certificate with proper domain name
 □ Configure firewall for your specific network
 □ Set up proper backup procedures
@@ -1932,27 +1957,27 @@ ${YELLOW}⚠️  Production Checklist:${NC}
 EOF
 else
     cat << EOF
-${YELLOW}🔧 Development Mode - Additional Options:${NC}
+$(echo -e "${YELLOW}🔧 Development Mode - Additional Options:${NC}")
 
-${BLUE}Alternative Access URLs:${NC}
+$(echo -e "${BLUE}Alternative Access URLs:${NC}")
 • Direct API: ${BLUE}http://$primary_ip:5000/${NC}
 • Docker (if used): ${BLUE}http://$primary_ip:8080/${NC}
 • All local IPs: ${BLUE}$(echo "$all_ips" | tr '\n' ' ')${NC}
 
-${BLUE}Docker Development Alternative:${NC}
+$(echo -e "${BLUE}Docker Development Alternative:${NC}")
 If you prefer Docker development setup:
 
 1. Navigate to project directory:
    ${BLUE}cd $PROJECT_DIR${NC}
    
 2. Copy and configure environment:
-   ${BLUE}cp docker/.env.example docker/.env${NC}
-   ${BLUE}nano docker/.env${NC}
+   $(echo -e "${BLUE}cp docker/.env.example docker/.env${NC}")
+   $(echo -e "${BLUE}nano docker/.env${NC}")
    
 3. Start with Docker Compose:
-   ${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}
+   $(echo -e "${BLUE}docker compose -f docker/docker-compose.yml up -d${NC}")
 
-${YELLOW}💡 Development Tips:${NC}
+$(echo -e "${YELLOW}💡 Development Tips:${NC}")
 • Use local authentication files for testing users
 • API server runs without SSL in development mode
 • Direct port access (5000) bypasses nginx proxy
@@ -2093,7 +2118,7 @@ print_help() {
   --dry-run                Analyze current environment and show actions that would be taken
   --help, -h               Show this help message
 
-${YELLOW}Examples:${NC}
+$(echo -e "${YELLOW}Examples:${NC}")
   # Development installation
   $0 --development
   
@@ -2106,9 +2131,9 @@ ${YELLOW}Examples:${NC}
   # Dry-run analysis without making changes
   $0 --dry-run --production
 
-${YELLOW}Modes:${NC}
-  ${GREEN}Development:${NC} Installs basic components without nginx/SSL/firewall
-  ${GREEN}Production:${NC}  Full installation with nginx, SSL certificates, and firewall
+$(echo -e "${YELLOW}Modes:${NC}")
+  $(echo -e "${GREEN}Development:${NC}") Installs basic components without nginx/SSL/firewall
+  $(echo -e "${GREEN}Production:${NC}")  Full installation with nginx, SSL certificates, and firewall
 
 EOF
 }
