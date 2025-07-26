@@ -1329,12 +1329,20 @@ install_claude_server_cli() {
     
     dotnet publish -c Release -r "$runtime" --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -o ./publish
     
+    # Verify the published executable exists
+    if [[ ! -f "./publish/claude-server" ]]; then
+        error "Published executable not found at ./publish/claude-server"
+        log "Contents of publish directory:"
+        ls -la ./publish/ || true
+        exit 1
+    fi
+    
     # Install to system location with backup
     if [[ -f "/usr/local/bin/claude-server" ]]; then
         backup_file "/usr/local/bin/claude-server"
     fi
     
-    sudo cp ./publish/ClaudeServerCLI /usr/local/bin/claude-server
+    sudo cp ./publish/claude-server /usr/local/bin/claude-server
     sudo chmod +x /usr/local/bin/claude-server
     
     # Store version information
