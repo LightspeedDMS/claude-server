@@ -2379,41 +2379,45 @@ start_services() {
         fi
     fi
     
-    # Start the main Claude Batch Server service
-    if ! sudo systemctl is-active --quiet claude-batch-server; then
-        log "Starting Claude Batch Server service..."
-        sudo systemctl start claude-batch-server
-        
-        # Wait a moment for service to fully start
-        sleep 3
-        
-        if sudo systemctl is-active --quiet claude-batch-server; then
-            log "Claude Batch Server service started successfully"
-            
-            # Verify it's actually responding
-            local max_attempts=10
-            local attempt=1
-            while [[ $attempt -le $max_attempts ]]; do
-                if curl -f -s http://localhost:5000/health > /dev/null 2>&1; then
-                    log "Claude Batch Server is responding to health checks"
-                    break
-                elif [[ $attempt -eq $max_attempts ]]; then
-                    warn "Claude Batch Server started but not responding to health checks yet"
-                    warn "This may be normal if the service is still initializing"
-                else
-                    log "Waiting for Claude Batch Server to respond... (attempt $attempt/$max_attempts)"
-                    sleep 2
-                fi
-                ((attempt++))
-            done
-        else
-            error "Failed to start Claude Batch Server service"
-            log "Check service status with: sudo systemctl status claude-batch-server"
-            log "Check service logs with: sudo journalctl -u claude-batch-server -n 20"
-            return 1
-        fi
+    # Start or restart the main Claude Batch Server service
+    local service_action="start"
+    if sudo systemctl is-active --quiet claude-batch-server; then
+        # Service is running - restart it to apply any configuration changes
+        log "Restarting Claude Batch Server service to apply configuration changes..."
+        service_action="restart"
     else
-        log "Claude Batch Server service already running"
+        log "Starting Claude Batch Server service..."
+    fi
+    
+    sudo systemctl "$service_action" claude-batch-server
+    
+    # Wait a moment for service to fully start
+    sleep 3
+    
+    if sudo systemctl is-active --quiet claude-batch-server; then
+        log "Claude Batch Server service ${service_action}ed successfully"
+        
+        # Verify it's actually responding
+        local max_attempts=10
+        local attempt=1
+        while [[ $attempt -le $max_attempts ]]; do
+            if curl -f -s http://localhost:5000/health > /dev/null 2>&1; then
+                log "Claude Batch Server is responding to health checks"
+                break
+            elif [[ $attempt -eq $max_attempts ]]; then
+                warn "Claude Batch Server started but not responding to health checks yet"
+                warn "This may be normal if the service is still initializing"
+            else
+                log "Waiting for Claude Batch Server to respond... (attempt $attempt/$max_attempts)"
+                sleep 2
+            fi
+            ((attempt++))
+        done
+    else
+        error "Failed to ${service_action} Claude Batch Server service"
+        log "Check service status with: sudo systemctl status claude-batch-server"
+        log "Check service logs with: sudo journalctl -u claude-batch-server -n 20"
+        return 1
     fi
     
     log "All services started successfully!"
