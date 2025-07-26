@@ -1080,7 +1080,14 @@ install_claude_cli() {
         fi
         
         log "Claude Code CLI installed successfully at $HOME/.local/bin/claude"
-        log "You may need to run 'source ~/.bashrc' or restart your shell to use 'claude' command"
+        
+        # Test if claude is now accessible
+        if command -v claude >/dev/null 2>&1; then
+            log "✅ 'claude' command is now available (no restart needed)"
+        else
+            warn "⚠️  You need to run 'source ~/.bashrc' or restart your shell to use 'claude' command"
+            warn "Or you can run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        fi
     else
         warn "Claude Code CLI installation may have failed, but continuing..."
     fi
@@ -1839,7 +1846,8 @@ ${BLUE}Troubleshooting:${NC}
 • Check port usage: ${BLUE}sudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'${NC}
 
 ${GREEN}🎯 Quick Start Summary:${NC}
-${YELLOW}First, restart your shell or run:${NC} ${BLUE}source ~/.bashrc${NC}
+${YELLOW}If 'claude' command is not found, run:${NC} ${BLUE}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}
+${YELLOW}Or restart your shell/run:${NC} ${BLUE}source ~/.bashrc${NC}
 
 1. Run ${BLUE}claude /login${NC} and ${BLUE}claude --dangerously-skip-permissions${NC}
 2. Start service: ${BLUE}sudo systemctl start claude-batch-server${NC}
