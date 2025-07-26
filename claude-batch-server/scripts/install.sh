@@ -1664,24 +1664,6 @@ server {
     add_header X-XSS-Protection "1; mode=block";
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
     
-    # API endpoints - proxy ALL API requests to backend
-    location ~ ^/(auth|jobs|repositories|health|swagger) {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection keep-alive;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        
-        # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-    
     # Frontend /api/* requests - rewrite and proxy to backend
     location /api/ {
         rewrite ^/api(.*)$ \$1 break;
@@ -1701,20 +1683,22 @@ server {
         proxy_read_timeout 60s;
     }
     
-    # Serve static files from .NET Core wwwroot directory
-    root $PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/wwwroot;
-    index index.html;
-    
-    # Static assets with caching
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        try_files \$uri =404;
-    }
-    
-    # SPA fallback - serve index.html for all other routes
+    # Proxy everything else to ASP.NET Core (serves both static files and API)
     location / {
-        try_files \$uri \$uri/ /index.html;
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection keep-alive;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 }
 EOF
