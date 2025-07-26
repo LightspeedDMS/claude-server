@@ -1598,7 +1598,7 @@ After=network.target
 Wants=network.target
 
 [Service]
-Type=notify
+Type=exec
 User=root
 Group=root
 WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0
