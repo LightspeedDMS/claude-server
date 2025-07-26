@@ -2396,6 +2396,22 @@ $(echo -e "${BLUE}Best for:${NC}")
   • Security-conscious installations
   • Corporate environments
 
+$(echo -e "${YELLOW}⚡ Quick Comparison Table:${NC}")
+┌─────────────────────────┬─────────────────┬─────────────────┐
+│ $(echo -e "${BLUE}Feature${NC}")                 │ $(echo -e "${GREEN}Development${NC}")     │ $(echo -e "${GREEN}Production${NC}")      │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│ Web UI (Vite SPA)       │ ✅ Full         │ ✅ Full         │
+│ API Server (.NET)       │ ✅ Port 5000    │ ✅ Port 5000    │
+│ nginx Reverse Proxy     │ ❌ No           │ ✅ Yes          │
+│ SSL/HTTPS               │ ❌ HTTP only    │ ✅ HTTPS (443)  │
+│ Firewall Config         │ ❌ None         │ ✅ Full         │
+│ Self-signed Certs       │ ❌ No           │ ✅ Interactive  │
+│ Security Headers        │ ❌ Basic        │ ✅ Production   │
+│ Multi-user Ready        │ ❌ Single user  │ ✅ Multi-user   │
+│ Internet Safe           │ ❌ Internal     │ ✅ Yes          │
+│ Setup Complexity        │ ✅ Simple       │ ⚠️  Interactive │
+└─────────────────────────┴─────────────────┴─────────────────┘
+
 $(echo -e "${YELLOW}⚡ Quick Decision Guide:${NC}")
   Use $(echo -e "${GREEN}Development${NC}") if: Testing locally, single user, internal network
   Use $(echo -e "${GREEN}Production${NC}") if: Multiple users, internet access, security needed
