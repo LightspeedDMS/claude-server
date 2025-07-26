@@ -1352,7 +1352,7 @@ install_claude_server_cli() {
     
     # Install to system location with backup
     if [[ -f "/usr/local/bin/claude-server" ]]; then
-        backup_file "/usr/local/bin/claude-server"
+        backup_config "/usr/local/bin/claude-server"
     fi
     
     sudo cp ./publish/claude-server /usr/local/bin/claude-server
