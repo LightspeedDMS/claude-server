@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { FileBrowserComponent } from '../../src/components/file-browser.js'
-import { apiClient } from '../../src/services/api.js'
+import apiClient from '../../src/services/api.js'
 
 // Mock the API client
 vi.mock('../../src/services/api.js', () => ({
-  apiClient: {
+  default: {
+    getJobDirectories: vi.fn(),
     getJobFiles: vi.fn(),
     getJobFileContent: vi.fn(),
     downloadJobFileBlob: vi.fn()
@@ -48,7 +49,8 @@ describe('FileBrowserComponent', () => {
     vi.clearAllMocks()
     
     // Setup default mock responses
-    apiClient.getJobFiles.mockResolvedValue({ files: mockFiles })
+    apiClient.getJobDirectories.mockResolvedValue([])
+    apiClient.getJobFiles.mockResolvedValue(mockFiles.filter(f => f.type === 'file'))
   })
 
   afterEach(() => {
@@ -89,6 +91,7 @@ describe('FileBrowserComponent', () => {
       // Wait for initialization
       await new Promise(resolve => setTimeout(resolve, 100))
       
+      expect(apiClient.getJobDirectories).toHaveBeenCalledWith(mockJobId, '')
       expect(apiClient.getJobFiles).toHaveBeenCalledWith(mockJobId, '')
     })
   })
@@ -362,6 +365,7 @@ describe('FileBrowserComponent', () => {
   describe('Error Handling', () => {
     it('should handle API errors gracefully', async () => {
       apiClient.getJobFiles.mockRejectedValue(new Error('Network error'))
+      apiClient.getJobDirectories.mockRejectedValue(new Error('Network error'))
       
       fileBrowser = new FileBrowserComponent(container, mockJobId)
       
@@ -373,7 +377,8 @@ describe('FileBrowserComponent', () => {
     })
 
     it('should show empty state when no files are found', async () => {
-      apiClient.getJobFiles.mockResolvedValue({ files: [] })
+      apiClient.getJobFiles.mockResolvedValue([])
+      apiClient.getJobDirectories.mockResolvedValue([])
       
       fileBrowser = new FileBrowserComponent(container, mockJobId)
       

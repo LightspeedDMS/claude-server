@@ -3,6 +3,74 @@
  */
 
 import { expect } from '@playwright/test'
+import { vi } from 'vitest'
+
+/**
+ * Mock localStorage for unit tests
+ */
+export function mockLocalStorage() {
+  const store = new Map()
+  
+  const localStorage = {
+    getItem: vi.fn((key) => store.get(key) || null),
+    setItem: vi.fn((key, value) => store.set(key, value)),
+    removeItem: vi.fn((key) => store.delete(key)),
+    clear: vi.fn(() => store.clear()),
+    length: 0,
+    key: vi.fn()
+  }
+  
+  // Mock global localStorage
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorage,
+    writable: true
+  })
+  
+  return localStorage
+}
+
+/**
+ * Mock fetch for unit tests
+ */
+export function mockFetch() {
+  const fetch = vi.fn()
+  
+  // Mock global fetch
+  global.fetch = fetch
+  
+  return fetch
+}
+
+/**
+ * Create test session data
+ */
+export function createTestSession(overrides = {}) {
+  const expires = new Date(Date.now() + 3600000).toISOString() // 1 hour from now
+  
+  // Create a proper JWT-like token structure with base64url encoding
+  function base64urlEncode(str) {
+    return btoa(str)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '')
+  }
+  
+  const header = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64urlEncode(JSON.stringify({ 
+    username: 'jsbattig', 
+    exp: Math.floor((Date.now() + 3600000) / 1000), // 1 hour from now in seconds
+    iat: Math.floor(Date.now() / 1000) 
+  }))
+  const signature = 'mock-signature'
+  const token = `${header}.${payload}.${signature}`
+  
+  return {
+    token,
+    user: JSON.stringify({ username: 'jsbattig', id: 1 }),
+    expires,
+    ...overrides
+  }
+}
 
 /**
  * Helper function for user login in E2E tests

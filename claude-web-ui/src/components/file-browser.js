@@ -923,4 +923,5 @@ class FileBrowserComponent {
 }
 
 // Export for use in other components
+export { FileBrowserComponent }
 export default FileBrowserComponent
