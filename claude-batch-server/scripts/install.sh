@@ -2331,9 +2331,74 @@ $(echo -e "${YELLOW}Examples:${NC}")
   # Dry-run analysis without making changes
   $0 --dry-run --production
 
-$(echo -e "${YELLOW}Modes:${NC}")
-  $(echo -e "${GREEN}Development:${NC}") Installs basic components without nginx/SSL/firewall
-  $(echo -e "${GREEN}Production:${NC}")  Full installation with nginx, SSL certificates, and firewall
+$(echo -e "${YELLOW}Installation Modes Comparison:${NC}")
+
+$(echo -e "${GREEN}🛠️  DEVELOPMENT MODE (Default):${NC}")
+$(echo -e "${BLUE}What gets installed:${NC}")
+  ✅ System prerequisites (curl, wget, openssl, etc.)
+  ✅ Node.js 18.x and npm (for web UI building)
+  ✅ .NET 8.0 SDK (for API server)
+  ✅ Claude CLI (official Claude AI client)
+  ✅ Python packages (pipx, code indexer)
+  ✅ Web UI build and deployment (Vite-based SPA)
+  ✅ API server build (.NET application)
+  ✅ Systemd service (runs as current user)
+  ✅ CLI tools (claude-server command)
+  ✅ Docker (optional, for development containers)
+  
+$(echo -e "${BLUE}Architecture:${NC}")
+  • API Server: Runs directly on port 5000
+  • Web UI: Served by API from /wwwroot (same port 5000)
+  • Access: http://localhost:5000 or http://YOUR_IP:5000
+  • Security: Basic (no SSL, minimal firewall)
+  • User: Service runs as current user (e.g., jsbattig)
+
+$(echo -e "${BLUE}Best for:${NC}")
+  • Local development and testing
+  • Quick setup and evaluation
+  • Internal networks without SSL requirements
+  • Single-user environments
+
+$(echo -e "${GREEN}🏭 PRODUCTION MODE (--production flag):${NC}")
+$(echo -e "${BLUE}Everything from Development Mode PLUS:${NC}")
+  ✅ nginx web server (reverse proxy and static serving)
+  ✅ Self-signed SSL certificates (with interactive setup)
+  ✅ nginx SSL configuration (HTTPS on port 443)
+  ✅ Comprehensive firewall setup (ports 80, 443, 5000)
+  ✅ Security headers and SSL best practices
+  ✅ nginx access and error logging
+  
+$(echo -e "${BLUE}Architecture:${NC}")
+  • nginx: Serves web UI on ports 80/443 (with SSL redirect)
+  • nginx: Proxies /api requests to API server (port 5000)
+  • API Server: Backend only, not directly accessible
+  • Access: https://YOUR_DOMAIN or https://YOUR_IP
+  • Security: Full SSL/TLS, firewall protection
+  • User: Service runs as current user, nginx as www-data
+
+$(echo -e "${BLUE}SSL Certificate Setup:${NC}")
+  • Interactive prompts for certificate details
+  • Self-signed certificate generation
+  • Configurable via command-line parameters
+  • Valid for 365 days, can be replaced with real certificates
+
+$(echo -e "${BLUE}Firewall Configuration:${NC}")
+  • HTTP (80): Web UI access
+  • HTTPS (443): Secure web UI access  
+  • API (5000): Direct API access (if needed)
+  • Docker (8080, 8443): Container deployments
+  • SSH (22): Remote management (Ubuntu only)
+
+$(echo -e "${BLUE}Best for:${NC}")
+  • Production deployments
+  • Multi-user environments
+  • Internet-facing servers
+  • Security-conscious installations
+  • Corporate environments
+
+$(echo -e "${YELLOW}⚡ Quick Decision Guide:${NC}")
+  Use $(echo -e "${GREEN}Development${NC}") if: Testing locally, single user, internal network
+  Use $(echo -e "${GREEN}Production${NC}") if: Multiple users, internet access, security needed
 
 EOF
 }
