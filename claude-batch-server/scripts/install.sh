@@ -1175,7 +1175,7 @@ install_code_indexer() {
         
         # Create symlink for system-wide access
         if [[ -f "$HOME/.local/bin/cidx" ]]; then
-            ln -sf "$HOME/.local/bin/cidx" /usr/local/bin/cidx
+            sudo ln -sf "$HOME/.local/bin/cidx" /usr/local/bin/cidx
             log "Created system-wide symlink for cidx"
         fi
     else
