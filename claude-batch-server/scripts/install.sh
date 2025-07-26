@@ -1115,6 +1115,18 @@ install_docker() {
     verify_command "docker"
     verify_command "docker" "compose version"
     verify_service "docker"
+    
+    # Add current user to docker group for cidx/docker access
+    local current_user=$(whoami)
+    if ! groups "$current_user" | grep -q "\bdocker\b"; then
+        log "Adding user '$current_user' to docker group for cidx access..."
+        sudo usermod -aG docker "$current_user"
+        log "User '$current_user' added to docker group"
+        log "Note: User may need to log out and back in for group changes to take effect"
+        log "Or restart the installation script after logout/login"
+    else
+        log "User '$current_user' already in docker group"
+    fi
 }
 
 # Install Claude Code CLI
