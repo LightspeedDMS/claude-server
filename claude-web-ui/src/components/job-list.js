@@ -130,7 +130,7 @@ export class JobListComponent {
     // Apply filters
     this.filteredJobs = this.jobs.filter(job => {
       // Status filter
-      if (this.currentFilter !== 'all' && job.status.toLowerCase() !== this.currentFilter) {
+      if (this.currentFilter !== 'all' && job.Status.toLowerCase() !== this.currentFilter) {
         return false
       }
 
@@ -138,9 +138,9 @@ export class JobListComponent {
       if (this.searchQuery) {
         const searchTerm = this.searchQuery.toLowerCase()
         return (
-          job.title.toLowerCase().includes(searchTerm) ||
-          job.repository.toLowerCase().includes(searchTerm) ||
-          job.status.toLowerCase().includes(searchTerm)
+          job.Title.toLowerCase().includes(searchTerm) ||
+          job.Repository.toLowerCase().includes(searchTerm) ||
+          job.Status.toLowerCase().includes(searchTerm)
         )
       }
 
@@ -213,19 +213,19 @@ export class JobListComponent {
   }
 
   renderJobCard(job) {
-    const statusClass = `status-${job.status.toLowerCase().replace('_', '-')}`
-    const createdAt = new Date(job.started || job.createdAt || job.created).toLocaleDateString()
-    const statusText = this.formatStatus(job.status)
-    const showResults = this.canShowResults(job.status)
+    const statusClass = `status-${job.Status.toLowerCase().replace('_', '-')}`
+    const createdAt = new Date(job.Started || job.CreatedAt || job.created).toLocaleDateString()
+    const statusText = this.formatStatus(job.Status)
+    const showResults = this.canShowResults(job.Status)
     
     return `
-      <div class="card job-card ${statusClass}" data-job-id="${job.jobId}" data-testid="job-item">
+      <div class="card job-card ${statusClass}" data-job-id="${job.JobId}" data-testid="job-item">
         <div class="card-body">
           <div class="job-card-header">
-            <h3 class="job-title" data-testid="job-title">${this.escapeHtml(job.title)}</h3>
+            <h3 class="job-title" data-testid="job-title">${this.escapeHtml(job.Title)}</h3>
             <div class="job-status">
               <div class="status-indicator"></div>
-              <span class="badge badge-${job.status.toLowerCase().replace('_', '-')}" data-testid="job-status">
+              <span class="badge badge-${job.Status.toLowerCase().replace('_', '-')}" data-testid="job-status">
                 ${statusText}
               </span>
             </div>
@@ -233,25 +233,25 @@ export class JobListComponent {
 
           <div class="job-meta">
             <div class="job-repository" data-testid="job-repository">
-              📁 ${this.escapeHtml(job.repository)}
+              📁 ${this.escapeHtml(job.Repository)}
             </div>
             <div class="job-timing">
               <span>Created: ${createdAt}</span>
-              <span data-testid="job-id" style="display: none;">${job.jobId}</span>
+              <span data-testid="job-id" style="display: none;">${job.JobId}</span>
             </div>
           </div>
 
           <div class="job-actions">
-            <button class="btn btn-sm btn-outline view-job" data-job-id="${job.jobId}">
+            <button class="btn btn-sm btn-outline view-job" data-job-id="${job.JobId}">
               View Details
             </button>
-            ${this.canCancelJob(job.status) ? `
-              <button class="btn btn-sm btn-warning cancel-job" data-job-id="${job.jobId}" data-testid="cancel-job-button">
+            ${this.canCancelJob(job.Status) ? `
+              <button class="btn btn-sm btn-warning cancel-job" data-job-id="${job.JobId}" data-testid="cancel-job-button">
                 Cancel
               </button>
             ` : ''}
-            ${this.canDeleteJob(job.status) ? `
-              <button class="btn btn-sm btn-error delete-job" data-job-id="${job.jobId}" data-testid="delete-job-${job.jobId}">
+            ${this.canDeleteJob(job.Status) ? `
+              <button class="btn btn-sm btn-error delete-job" data-job-id="${job.JobId}" data-testid="delete-job-${job.JobId}">
                 Delete
               </button>
             ` : ''}
@@ -372,10 +372,10 @@ export class JobListComponent {
   startMonitoring() {
     // Start monitoring all active jobs
     this.jobs.forEach(job => {
-      if (this.isActiveJob(job.status)) {
-        jobMonitorManager.startMonitoring(job.jobId, {
+      if (this.isActiveJob(job.Status)) {
+        jobMonitorManager.startMonitoring(job.JobId, {
           onStatusUpdate: (status) => {
-            this.updateJobStatus(job.jobId, status)
+            this.updateJobStatus(job.JobId, status)
           },
           onComplete: () => {
             this.loadJobs() // Refresh when job completes
@@ -389,7 +389,7 @@ export class JobListComponent {
     // Update job in local array
     const job = this.jobs.find(j => j.jobId === jobId)
     if (job) {
-      job.status = status.status
+      job.Status = status.status
       // Update the card in the DOM
       this.updateJobCard(jobId, status)
     }
@@ -484,25 +484,25 @@ export class JobListComponent {
   }
 
   renderJobResults(job) {
-    const isExpanded = this.isJobResultsExpanded(job.jobId)
+    const isExpanded = this.isJobResultsExpanded(job.JobId)
     const expandClass = isExpanded ? 'expanded' : ''
     const iconClass = isExpanded ? 'expanded' : ''
     
     // Determine result status and icon
     let statusIcon, statusClass, resultTitle, resultSummary
     
-    switch (job.status.toLowerCase()) {
+    switch (job.Status.toLowerCase()) {
       case 'completed':
         statusIcon = '✅'
         statusClass = 'success'
         resultTitle = 'Job Completed Successfully'
-        resultSummary = job.exitCode === 0 ? 'Execution finished without errors' : `Completed with exit code ${job.exitCode}`
+        resultSummary = job.ExitCode === 0 ? 'Execution finished without errors' : `Completed with exit code ${job.ExitCode}`
         break
       case 'failed':
         statusIcon = '❌'
         statusClass = 'error'
         resultTitle = 'Job Failed'
-        resultSummary = job.exitCode ? `Failed with exit code ${job.exitCode}` : 'Execution encountered an error'
+        resultSummary = job.ExitCode ? `Failed with exit code ${job.ExitCode}` : 'Execution encountered an error'
         break
       case 'timeout':
         statusIcon = '⏰'
@@ -524,8 +524,8 @@ export class JobListComponent {
     }
 
     return `
-      <div class="job-results-section" data-job-id="${job.jobId}">
-        <div class="job-results-header" data-job-id="${job.jobId}">
+      <div class="job-results-section" data-job-id="${job.JobId}">
+        <div class="job-results-header" data-job-id="${job.JobId}">
           <div class="results-header-left">
             <div class="results-status-icon ${statusClass}">
               ${statusIcon}
@@ -548,21 +548,21 @@ export class JobListComponent {
   }
 
   renderJobResultsContent(job) {
-    const activeTab = this.getActiveResultsTab(job.jobId) || 'formatted'
+    const activeTab = this.getActiveResultsTab(job.JobId) || 'formatted'
     
     return `
       <div class="job-results-tabs">
         <button class="results-tab ${activeTab === 'formatted' ? 'active' : ''}" 
-                data-job-id="${job.jobId}" data-tab="formatted">
+                data-job-id="${job.JobId}" data-tab="formatted">
           📝 Formatted Output
         </button>
         <button class="results-tab ${activeTab === 'raw' ? 'active' : ''}" 
-                data-job-id="${job.jobId}" data-tab="raw">
+                data-job-id="${job.JobId}" data-tab="raw">
           🔤 Raw Output
         </button>
-        ${job.status.toLowerCase() === 'failed' ? `
+        ${job.Status.toLowerCase() === 'failed' ? `
           <button class="results-tab ${activeTab === 'error' ? 'active' : ''}" 
-                  data-job-id="${job.jobId}" data-tab="error">
+                  data-job-id="${job.JobId}" data-tab="error">
             ⚠️ Error Details
           </button>
         ` : ''}
@@ -578,7 +578,7 @@ export class JobListComponent {
         ${this.renderRawOutput(job)}
       </div>
       
-      ${job.status.toLowerCase() === 'failed' ? `
+      ${job.Status.toLowerCase() === 'failed' ? `
         <div class="results-tab-content ${activeTab === 'error' ? 'active' : ''}" 
              data-tab="error">
           ${this.renderErrorDetails(job)}
@@ -587,17 +587,17 @@ export class JobListComponent {
       
       <div class="job-results-actions">
         <div class="results-actions-left">
-          <button class="btn btn-sm btn-outline copy-output-btn" data-job-id="${job.jobId}">
+          <button class="btn btn-sm btn-outline copy-output-btn" data-job-id="${job.JobId}">
             📋 Copy Output
           </button>
-          <button class="btn btn-sm btn-outline download-output-btn" data-job-id="${job.jobId}">
+          <button class="btn btn-sm btn-outline download-output-btn" data-job-id="${job.JobId}">
             💾 Download
           </button>
         </div>
         <div class="results-actions-right">
           <div class="results-info">
-            ${job.exitCode !== null && job.exitCode !== undefined ? `Exit Code: ${job.exitCode}` : ''}
-            ${job.completedAt ? `• Completed: ${new Date(job.completedAt).toLocaleString()}` : ''}
+            ${job.ExitCode !== null && job.ExitCode !== undefined ? `Exit Code: ${job.ExitCode}` : ''}
+            ${job.CompletedAt ? `• Completed: ${new Date(job.CompletedAt).toLocaleString()}` : ''}
           </div>
         </div>
       </div>
@@ -605,7 +605,7 @@ export class JobListComponent {
   }
 
   renderFormattedOutput(job) {
-    if (!job.output || job.output.trim() === '') {
+    if (!job.Output || job.Output.trim() === '') {
       return `
         <div class="job-output-display empty">
           No output available
@@ -614,7 +614,7 @@ export class JobListComponent {
     }
 
     // Try to parse as markdown first, fallback to plain text
-    const formattedOutput = MarkdownParser.parse(job.output)
+    const formattedOutput = MarkdownParser.parse(job.Output)
     
     return `
       <div class="markdown-content">
@@ -624,7 +624,7 @@ export class JobListComponent {
   }
 
   renderRawOutput(job) {
-    if (!job.output || job.output.trim() === '') {
+    if (!job.Output || job.Output.trim() === '') {
       return `
         <div class="job-output-display empty">
           No output available
@@ -634,13 +634,13 @@ export class JobListComponent {
 
     return `
       <div class="job-output-display">
-        ${this.escapeHtml(job.output)}
+        ${this.escapeHtml(job.Output)}
       </div>
     `
   }
 
   renderErrorDetails(job) {
-    const errorOutput = job.output || 'No error details available'
+    const errorOutput = job.Output || 'No error details available'
     
     return `
       <div class="job-error-display">
@@ -788,10 +788,10 @@ export class JobListComponent {
 
   async copyJobOutput(jobId) {
     const job = this.jobs.find(j => j.jobId === jobId)
-    if (!job || !job.output) return
+    if (!job || !job.Output) return
 
     try {
-      await navigator.clipboard.writeText(job.output)
+      await navigator.clipboard.writeText(job.Output)
       
       // Show temporary success feedback
       const btn = this.container.querySelector(`[data-job-id="${jobId}"] .copy-output-btn`)
@@ -812,9 +812,9 @@ export class JobListComponent {
 
   downloadJobOutput(jobId) {
     const job = this.jobs.find(j => j.jobId === jobId)
-    if (!job || !job.output) return
+    if (!job || !job.Output) return
 
-    const blob = new Blob([job.output], { type: 'text/plain' })
+    const blob = new Blob([job.Output], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

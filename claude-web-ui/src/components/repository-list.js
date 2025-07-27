@@ -172,9 +172,9 @@ export class RepositoryListComponent {
       if (this.searchQuery) {
         const searchTerm = this.searchQuery.toLowerCase()
         return (
-          repo.name.toLowerCase().includes(searchTerm) ||
-          (repo.description && repo.description.toLowerCase().includes(searchTerm)) ||
-          (repo.gitUrl && repo.gitUrl.toLowerCase().includes(searchTerm))
+          repo.Name.toLowerCase().includes(searchTerm) ||
+          (repo.Description && repo.Description.toLowerCase().includes(searchTerm)) ||
+          (repo.GitUrl && repo.GitUrl.toLowerCase().includes(searchTerm))
         )
       }
 
@@ -257,15 +257,15 @@ export class RepositoryListComponent {
     const status = this.getRepositoryStatus(repo)
     const statusClass = `status-${status}`
     const statusText = this.formatStatus(status)
-    const registeredAt = repo.registeredAt ? new Date(repo.registeredAt).toLocaleDateString() : 'Unknown'
-    const lastPull = repo.lastPull ? new Date(repo.lastPull).toLocaleDateString() : 'Never'
-    const size = this.formatSize(repo.size || 0)
+    const registeredAt = repo.RegisteredAt ? new Date(repo.RegisteredAt).toLocaleDateString() : 'Unknown'
+    const lastPull = repo.LastPull ? new Date(repo.LastPull).toLocaleDateString() : 'Never'
+    const size = this.formatSize(repo.Size || 0)
     
     return `
-      <div class="card repository-card ${statusClass}" data-repo-name="${repo.name}" data-testid="repository-item">
+      <div class="card repository-card ${statusClass}" data-repo-name="${repo.Name}" data-testid="repository-item">
         <div class="card-body">
           <div class="repository-card-header">
-            <h3 class="repository-title" data-testid="repository-name">${this.escapeHtml(repo.name)}</h3>
+            <h3 class="repository-title" data-testid="repository-name">${this.escapeHtml(repo.Name)}</h3>
             <div class="repository-status">
               <div class="status-indicator status-${status}"></div>
               <span class="badge badge-${status}" data-testid="repository-status">
@@ -275,16 +275,16 @@ export class RepositoryListComponent {
           </div>
 
           <div class="repository-meta">
-            ${repo.description ? `
+            ${repo.Description ? `
               <div class="repository-description" data-testid="repository-description">
-                ${this.escapeHtml(repo.description)}
+                ${this.escapeHtml(repo.Description)}
               </div>
             ` : ''}
             
             <div class="repository-details">
               <div class="detail-item">
                 <span class="detail-label">Git URL:</span>
-                <span class="detail-value" data-testid="repository-git-url">${this.escapeHtml(repo.gitUrl || 'N/A')}</span>
+                <span class="detail-value" data-testid="repository-git-url">${this.escapeHtml(repo.GitUrl || 'N/A')}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Size:</span>
@@ -312,15 +312,15 @@ export class RepositoryListComponent {
           </div>
 
           <div class="repository-actions">
-            <button class="btn btn-sm btn-outline view-repository" data-repo-name="${repo.name}" data-testid="view-repository">
+            <button class="btn btn-sm btn-outline view-repository" data-repo-name="${repo.Name}" data-testid="view-repository">
               View Details
             </button>
             ${status === 'ready' ? `
-              <button class="btn btn-sm btn-secondary refresh-repository" data-repo-name="${repo.name}" data-testid="refresh-repository">
+              <button class="btn btn-sm btn-secondary refresh-repository" data-repo-name="${repo.Name}" data-testid="refresh-repository">
                 Refresh
               </button>
             ` : ''}
-            <button class="btn btn-sm btn-error unregister-repository" data-repo-name="${repo.name}" data-testid="unregister-repository">
+            <button class="btn btn-sm btn-error unregister-repository" data-repo-name="${repo.Name}" data-testid="unregister-repository">
               Unregister
             </button>
           </div>
@@ -333,21 +333,21 @@ export class RepositoryListComponent {
     const status = this.getRepositoryStatus(repo)
     const statusClass = `status-${status}`
     const statusText = this.formatStatus(status)
-    const registeredAt = repo.registeredAt ? new Date(repo.registeredAt).toLocaleDateString() : 'Unknown'
-    const lastPull = repo.lastPull ? new Date(repo.lastPull).toLocaleDateString() : 'Never'
-    const size = this.formatSize(repo.size || 0)
+    const registeredAt = repo.RegisteredAt ? new Date(repo.RegisteredAt).toLocaleDateString() : 'Unknown'
+    const lastPull = repo.LastPull ? new Date(repo.LastPull).toLocaleDateString() : 'Never'
+    const size = this.formatSize(repo.Size || 0)
     
     return `
-      <div class="repository-row ${statusClass}" data-repo-name="${repo.name}" data-testid="repository-item">
+      <div class="repository-row ${statusClass}" data-repo-name="${repo.Name}" data-testid="repository-item">
         <div class="repository-row-content">
           <div class="repository-basic-info">
             <div class="repository-name-status">
-              <h3 class="repository-title" data-testid="repository-name">${this.escapeHtml(repo.name)}</h3>
+              <h3 class="repository-title" data-testid="repository-name">${this.escapeHtml(repo.Name)}</h3>
               <span class="badge badge-${status}" data-testid="repository-status">${statusText}</span>
             </div>
-            ${repo.description ? `
+            ${repo.Description ? `
               <div class="repository-description" data-testid="repository-description">
-                ${this.escapeHtml(repo.description)}
+                ${this.escapeHtml(repo.Description)}
               </div>
             ` : ''}
           </div>
@@ -356,7 +356,7 @@ export class RepositoryListComponent {
             <div class="metadata-column">
               <div class="metadata-item">
                 <span class="metadata-label">Git URL:</span>
-                <span class="metadata-value" data-testid="repository-git-url">${this.escapeHtml(repo.gitUrl || 'N/A')}</span>
+                <span class="metadata-value" data-testid="repository-git-url">${this.escapeHtml(repo.GitUrl || 'N/A')}</span>
               </div>
               <div class="metadata-item">
                 <span class="metadata-label">Size:</span>
@@ -387,15 +387,15 @@ export class RepositoryListComponent {
         </div>
 
         <div class="repository-actions">
-          <button class="btn btn-sm btn-outline view-repository" data-repo-name="${repo.name}" data-testid="view-repository">
+          <button class="btn btn-sm btn-outline view-repository" data-repo-name="${repo.Name}" data-testid="view-repository">
             View Details
           </button>
           ${status === 'ready' ? `
-            <button class="btn btn-sm btn-secondary refresh-repository" data-repo-name="${repo.name}" data-testid="refresh-repository">
+            <button class="btn btn-sm btn-secondary refresh-repository" data-repo-name="${repo.Name}" data-testid="refresh-repository">
               Refresh
             </button>
           ` : ''}
-          <button class="btn btn-sm btn-error unregister-repository" data-repo-name="${repo.name}" data-testid="unregister-repository">
+          <button class="btn btn-sm btn-error unregister-repository" data-repo-name="${repo.Name}" data-testid="unregister-repository">
             Unregister
           </button>
         </div>
@@ -404,43 +404,43 @@ export class RepositoryListComponent {
   }
 
   renderGitMetadata(repo) {
-    if (!repo.currentBranch && !repo.commitHash) {
+    if (!repo.CurrentBranch && !repo.CommitHash) {
       return ''
     }
 
     return `
       <div class="git-metadata">
-        ${repo.currentBranch ? `
+        ${repo.CurrentBranch ? `
           <div class="git-item">
             <span class="git-label">Branch:</span>
-            <span class="git-value" data-testid="repository-branch">${this.escapeHtml(repo.currentBranch)}</span>
+            <span class="git-value" data-testid="repository-branch">${this.escapeHtml(repo.CurrentBranch)}</span>
           </div>
         ` : ''}
-        ${repo.commitHash ? `
+        ${repo.CommitHash ? `
           <div class="git-item">
             <span class="git-label">Commit:</span>
-            <span class="git-value git-commit" data-testid="repository-commit">${repo.commitHash.substring(0, 8)}</span>
+            <span class="git-value git-commit" data-testid="repository-commit">${repo.CommitHash.substring(0, 8)}</span>
           </div>
         ` : ''}
-        ${repo.commitAuthor ? `
+        ${repo.CommitAuthor ? `
           <div class="git-item">
             <span class="git-label">Author:</span>
-            <span class="git-value" data-testid="repository-author">${this.escapeHtml(repo.commitAuthor)}</span>
+            <span class="git-value" data-testid="repository-author">${this.escapeHtml(repo.CommitAuthor)}</span>
           </div>
         ` : ''}
-        ${repo.commitDate ? `
+        ${repo.CommitDate ? `
           <div class="git-item">
             <span class="git-label">Date:</span>
-            <span class="git-value">${new Date(repo.commitDate).toLocaleDateString()}</span>
+            <span class="git-value">${new Date(repo.CommitDate).toLocaleDateString()}</span>
           </div>
         ` : ''}
-        ${repo.aheadBehind ? `
+        ${repo.AheadBehind ? `
           <div class="git-item">
             <span class="git-label">Status:</span>
             <span class="git-value">
-              ${repo.aheadBehind.ahead > 0 ? `↑${repo.aheadBehind.ahead}` : ''}
-              ${repo.aheadBehind.behind > 0 ? `↓${repo.aheadBehind.behind}` : ''}
-              ${repo.aheadBehind.ahead === 0 && repo.aheadBehind.behind === 0 ? '✓ Up to date' : ''}
+              ${repo.AheadBehind.ahead > 0 ? `↑${repo.AheadBehind.ahead}` : ''}
+              ${repo.AheadBehind.behind > 0 ? `↓${repo.AheadBehind.behind}` : ''}
+              ${repo.AheadBehind.ahead === 0 && repo.AheadBehind.behind === 0 ? '✓ Up to date' : ''}
             </span>
           </div>
         ` : ''}

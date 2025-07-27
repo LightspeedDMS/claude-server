@@ -71,56 +71,56 @@ export class JobDetailsComponent {
     if (!this.job) return
 
     const content = this.container.querySelector('#jobDetailsContent')
-    const statusClass = `status-${this.job.status.toLowerCase().replace('_', '-')}`
+    const statusClass = `status-${this.job.Status.toLowerCase().replace('_', '-')}`
     
     content.innerHTML = `
       <div class="job-details-header">
         <div class="job-details-info">
-          <h1 class="job-details-title" data-testid="job-title">${this.escapeHtml(this.job.title)}</h1>
+          <h1 class="job-details-title" data-testid="job-title">${this.escapeHtml(this.job.Title)}</h1>
           <div class="job-details-meta">
             <div class="job-details-meta-item">
               <div class="meta-label">Status</div>
               <div class="meta-value">
-                <span class="badge badge-${this.job.status.toLowerCase().replace('_', '-')}" data-testid="job-status">
-                  ${this.formatStatus(this.job.status)}
+                <span class="badge badge-${this.job.Status.toLowerCase().replace('_', '-')}" data-testid="job-status">
+                  ${this.formatStatus(this.job.Status)}
                 </span>
               </div>
             </div>
             <div class="job-details-meta-item">
               <div class="meta-label">Repository</div>
-              <div class="meta-value" data-testid="job-repository">${this.escapeHtml(this.job.cowPath)}</div>
+              <div class="meta-value" data-testid="job-repository">${this.escapeHtml(this.job.CowPath)}</div>
             </div>
             <div class="job-details-meta-item">
               <div class="meta-label">Created</div>
-              <div class="meta-value">${new Date(this.job.createdAt).toLocaleString()}</div>
+              <div class="meta-value">${new Date(this.job.CreatedAt).toLocaleString()}</div>
             </div>
-            ${this.job.startedAt ? `
+            ${this.job.StartedAt ? `
               <div class="job-details-meta-item">
                 <div class="meta-label">Started</div>
-                <div class="meta-value">${new Date(this.job.startedAt).toLocaleString()}</div>
+                <div class="meta-value">${new Date(this.job.StartedAt).toLocaleString()}</div>
               </div>
             ` : ''}
-            ${this.job.completedAt ? `
+            ${this.job.CompletedAt ? `
               <div class="job-details-meta-item">
                 <div class="meta-label">Completed</div>
-                <div class="meta-value" data-testid="completion-time">${new Date(this.job.completedAt).toLocaleString()}</div>
+                <div class="meta-value" data-testid="completion-time">${new Date(this.job.CompletedAt).toLocaleString()}</div>
               </div>
             ` : ''}
-            ${this.job.exitCode !== null && this.job.exitCode !== undefined ? `
+            ${this.job.ExitCode !== null && this.job.ExitCode !== undefined ? `
               <div class="job-details-meta-item">
                 <div class="meta-label">Exit Code</div>
-                <div class="meta-value" data-testid="exit-code">${this.job.exitCode}</div>
+                <div class="meta-value" data-testid="exit-code">${this.job.ExitCode}</div>
               </div>
             ` : ''}
           </div>
         </div>
         <div class="job-details-actions">
-          ${this.canCancelJob(this.job.status) ? `
+          ${this.canCancelJob(this.job.Status) ? `
             <button class="btn btn-warning" id="cancelJob" data-testid="cancel-job-button">
               Cancel Job
             </button>
           ` : ''}
-          ${this.canDeleteJob(this.job.status) ? `
+          ${this.canDeleteJob(this.job.Status) ? `
             <button class="btn btn-error" id="deleteJob">
               Delete Job
             </button>
@@ -139,7 +139,7 @@ export class JobDetailsComponent {
           <div class="job-output-header">
             <h3>Job Output</h3>
             <div class="output-actions">
-              ${this.job.output ? `
+              ${this.job.Output ? `
                 <button class="btn btn-sm btn-outline" id="copyOutput">
                   📋 Copy
                 </button>
@@ -149,8 +149,8 @@ export class JobDetailsComponent {
               ` : ''}
             </div>
           </div>
-          <div class="job-output ${this.job.output ? '' : 'empty'}" data-testid="job-output">
-            ${this.job.output || 'No output available yet...'}
+          <div class="job-output ${this.job.Output ? '' : 'empty'}" data-testid="job-output">
+            ${this.job.Output || 'No output available yet...'}
           </div>
         </div>
 
@@ -166,14 +166,14 @@ export class JobDetailsComponent {
             </div>
           </div>
 
-          ${this.job.queuePosition > 0 ? `
+          ${this.job.QueuePosition > 0 ? `
             <div class="card">
               <div class="card-header">
                 <h4>Queue Information</h4>
               </div>
               <div class="card-body">
                 <div class="queue-position">
-                  Position: <strong>#${this.job.queuePosition}</strong>
+                  Position: <strong>#${this.job.QueuePosition}</strong>
                 </div>
               </div>
             </div>
@@ -185,7 +185,7 @@ export class JobDetailsComponent {
             </div>
             <div class="card-body">
               <div class="git-status">
-                Status: <span class="badge badge-${this.job.gitStatus}">${this.job.gitStatus}</span>
+                Status: <span class="badge badge-${this.job.GitStatus}">${this.job.GitStatus}</span>
               </div>
             </div>
           </div>
@@ -196,7 +196,7 @@ export class JobDetailsComponent {
             </div>
             <div class="card-body">
               <div class="cidx-status">
-                Status: <span class="badge badge-${this.job.cidxStatus}">${this.job.cidxStatus}</span>
+                Status: <span class="badge badge-${this.job.CidxStatus}">${this.job.CidxStatus}</span>
               </div>
             </div>
           </div>
@@ -231,7 +231,7 @@ export class JobDetailsComponent {
       { key: 'timeout', label: 'Timeout', icon: '⏰' }
     ]
 
-    const currentStatus = this.job.status.toLowerCase()
+    const currentStatus = this.job.Status.toLowerCase()
     const currentIndex = statuses.findIndex(s => s.key === currentStatus)
     
     return statuses.map((status, index) => {
@@ -298,7 +298,7 @@ export class JobDetailsComponent {
   }
 
   startMonitoring() {
-    if (this.job && this.isActiveJob(this.job.status)) {
+    if (this.job && this.isActiveJob(this.job.Status)) {
       this.monitor = jobMonitorManager.startMonitoring(this.jobId, {
         onStatusUpdate: (status) => {
           this.updateJobStatus(status)
@@ -449,7 +449,7 @@ export class JobDetailsComponent {
 
   async copyOutput() {
     try {
-      await navigator.clipboard.writeText(this.job.output)
+      await navigator.clipboard.writeText(this.job.Output)
       // Show temporary success message
       const btn = this.container.querySelector('#copyOutput')
       const originalText = btn.textContent
@@ -464,7 +464,7 @@ export class JobDetailsComponent {
   }
 
   downloadOutput() {
-    const blob = new Blob([this.job.output], { type: 'text/plain' })
+    const blob = new Blob([this.job.Output], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
