@@ -464,6 +464,12 @@ public class CowRepositoryService : IRepositoryService
                 settings["CloneStatus"] = status;
             }
             
+            // If status indicates CIDX activity, ensure CidxAware is true
+            if (status == "cidx_indexing" || status == "cidx_failed")
+            {
+                settings["CidxAware"] = true;
+            }
+            
             await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
         }
         catch (Exception ex)
