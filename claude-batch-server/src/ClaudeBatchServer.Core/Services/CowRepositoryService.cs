@@ -196,6 +196,15 @@ public class CowRepositoryService : IRepositoryService
                     _logger.LogWarning("Failed to read repository settings for {Repository}: {Error}", name, ex.Message);
                 }
             }
+            else
+            {
+                // If no settings file exists but it's a git repository, it's likely being cloned
+                if (isGitRepo)
+                {
+                    repository.CloneStatus = "cloning";
+                    _logger.LogDebug("Repository {Name} has no settings file but is a git repo - assuming active clone", name);
+                }
+            }
 
             // If it's a Git repository, extract Git metadata
             if (isGitRepo)
