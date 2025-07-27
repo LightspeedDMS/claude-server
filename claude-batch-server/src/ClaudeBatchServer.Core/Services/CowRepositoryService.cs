@@ -212,16 +212,25 @@ public class CowRepositoryService : IRepositoryService
                     repository.HasUncommittedChanges = gitMetadata.HasUncommittedChanges;
                     repository.AheadBehind = gitMetadata.AheadBehind;
                     
-                    // Set last pull status based on what we can determine
+                    // Set last pull status based on clone status and registration info
                     if (repository.RegisteredAt.HasValue)
                     {
                         repository.LastPull = repository.RegisteredAt;
-                        repository.LastPullStatus = repository.CloneStatus == "completed" ? "success" : 
-                                                  repository.CloneStatus == "failed" ? "failed" : "never";
+                        
+                        // Map clone status to pull status
+                        repository.LastPullStatus = repository.CloneStatus switch
+                        {
+                            "completed" => "success",
+                            "failed" => "failed", 
+                            "cloning" => "in_progress",
+                            "cidx_indexing" => "in_progress",
+                            "cidx_failed" => "partial", // Cloned but CIDX failed
+                            _ => "never"
+                        };
                     }
                     else
                     {
-                        repository.LastPullStatus = "unknown";
+                        repository.LastPullStatus = "never";
                     }
                 }
             }
@@ -291,10 +300,22 @@ public class CowRepositoryService : IRepositoryService
         
         try
         {
-            _logger.LogInformation("Starting background processing for repository {Name}", repository.Name);
+            _logger.LogInformation("Starting background processing for repository {Name} (CidxAware: {CidxAware})", repository.Name, cidxAware);
             
-            // Update status to cloning
-            await UpdateRepositoryStatusAsync(repository.Name, "cloning");
+            // Create initial settings file with CIDX aware status BEFORE cloning starts
+            // This ensures the UI shows the correct CIDX status immediately
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+            var initialSettings = new Dictionary<string, object>
+            {
+                ["Name"] = repository.Name,
+                ["Description"] = repository.Description,
+                ["GitUrl"] = repository.GitUrl,
+                ["RegisteredAt"] = repository.RegisteredAt,
+                ["CloneStatus"] = "cloning",
+                ["CidxAware"] = cidxAware
+            };
+            await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(initialSettings, AppJsonSerializerContext.Default.DictionaryStringObject));
+            _logger.LogInformation("Created initial settings file for repository {Name} with CidxAware: {CidxAware}", repository.Name, cidxAware);
             
             // Clone the repository using safe process execution
             var processInfo = SecurityUtils.CreateSafeProcess("git", "clone", repository.GitUrl, repository.Path);
@@ -408,21 +429,67 @@ public class CowRepositoryService : IRepositoryService
         {
             var repositoryPath = Path.Combine(_repositoriesPath, repositoryName);
             var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
+            
+            Dictionary<string, object>? settings = null;
+            
             if (File.Exists(settingsPath))
             {
                 var settingsJson = await File.ReadAllTextAsync(settingsPath);
-                var settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
-                
-                if (settings != null)
-                {
-                    settings["CloneStatus"] = status;
-                    await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
-                }
+                settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
             }
+            
+            // If settings file doesn't exist or is corrupted, create minimal settings for status tracking
+            if (settings == null)
+            {
+                // Ensure directory exists for settings file
+                Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+                
+                settings = new Dictionary<string, object>
+                {
+                    ["Name"] = repositoryName,
+                    ["CloneStatus"] = status,
+                    ["RegisteredAt"] = DateTime.UtcNow,
+                    ["CidxAware"] = false // Will be updated later when we know the actual value
+                };
+            }
+            else
+            {
+                settings["CloneStatus"] = status;
+            }
+            
+            await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update status for repository {Name}", repositoryName);
+        }
+    }
+
+    private async Task UpdateRepositoryCidxAwareAsync(string repositoryName, bool cidxAware)
+    {
+        try
+        {
+            var repositoryPath = Path.Combine(_repositoriesPath, repositoryName);
+            var settingsPath = Path.Combine(repositoryPath, ".claude-batch-settings.json");
+            
+            Dictionary<string, object>? settings = null;
+            
+            if (File.Exists(settingsPath))
+            {
+                var settingsJson = await File.ReadAllTextAsync(settingsPath);
+                settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
+            }
+            
+            if (settings != null)
+            {
+                settings["CidxAware"] = cidxAware;
+                await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
+                _logger.LogInformation("Updated CidxAware status for repository {Name} to {CidxAware}", repositoryName, cidxAware);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update CidxAware status for repository {Name}", repositoryName);
         }
     }
 

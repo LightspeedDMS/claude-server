@@ -298,11 +298,11 @@ export class RepositoryListComponent {
                 <span class="detail-label">Last Pull:</span>
                 <span class="detail-value" data-testid="repository-last-pull">${lastPull}</span>
               </div>
-              ${repo.cidxAware !== undefined ? `
+              ${repo.CidxAware !== undefined ? `
                 <div class="detail-item">
                   <span class="detail-label">Cidx Aware:</span>
-                  <span class="detail-value cidx-aware-${repo.cidxAware}" data-testid="repository-cidx-aware">
-                    ${repo.cidxAware ? '🧠 Yes' : '❌ No'}
+                  <span class="detail-value cidx-aware-${repo.CidxAware}" data-testid="repository-cidx-aware">
+                    ${repo.CidxAware ? '🧠 Yes' : '❌ No'}
                   </span>
                 </div>
               ` : ''}
@@ -372,11 +372,11 @@ export class RepositoryListComponent {
                 <span class="metadata-label">Last Pull:</span>
                 <span class="metadata-value" data-testid="repository-last-pull">${lastPull}</span>
               </div>
-              ${repo.cidxAware !== undefined ? `
+              ${repo.CidxAware !== undefined ? `
                 <div class="metadata-item">
                   <span class="metadata-label">Cidx Aware:</span>
-                  <span class="metadata-value cidx-aware-${repo.cidxAware}" data-testid="repository-cidx-aware">
-                    ${repo.cidxAware ? '🧠 Yes' : '❌ No'}
+                  <span class="metadata-value cidx-aware-${repo.CidxAware}" data-testid="repository-cidx-aware">
+                    ${repo.CidxAware ? '🧠 Yes' : '❌ No'}
                   </span>
                 </div>
               ` : ''}
@@ -522,8 +522,8 @@ export class RepositoryListComponent {
   }
 
   getRepositoryStatus(repo) {
-    if (repo.cloneStatus) {
-      switch (repo.cloneStatus.toLowerCase()) {
+    if (repo.CloneStatus) {
+      switch (repo.CloneStatus.toLowerCase()) {
         case 'completed':
         case 'ready':
           return 'ready'
