@@ -469,6 +469,12 @@ public class CowRepositoryService : IRepositoryService
             {
                 settings["CidxAware"] = true;
             }
+            // If completing and CidxAware was already set, preserve it
+            else if (status == "completed" && settings.ContainsKey("CidxAware"))
+            {
+                // Don't override existing CidxAware value when completing
+                // This preserves the CIDX status set during indexing
+            }
             
             await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
         }
