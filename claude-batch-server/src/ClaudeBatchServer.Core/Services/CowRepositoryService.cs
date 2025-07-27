@@ -302,21 +302,6 @@ public class CowRepositoryService : IRepositoryService
         {
             _logger.LogInformation("Starting background processing for repository {Name} (CidxAware: {CidxAware})", repository.Name, cidxAware);
             
-            // Create initial settings file with CIDX aware status BEFORE cloning starts
-            // This ensures the UI shows the correct CIDX status immediately
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-            var initialSettings = new Dictionary<string, object>
-            {
-                ["Name"] = repository.Name,
-                ["Description"] = repository.Description,
-                ["GitUrl"] = repository.GitUrl,
-                ["RegisteredAt"] = repository.RegisteredAt,
-                ["CloneStatus"] = "cloning",
-                ["CidxAware"] = cidxAware
-            };
-            await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(initialSettings, AppJsonSerializerContext.Default.DictionaryStringObject));
-            _logger.LogInformation("Created initial settings file for repository {Name} with CidxAware: {CidxAware}", repository.Name, cidxAware);
-            
             // Clone the repository using safe process execution
             var processInfo = SecurityUtils.CreateSafeProcess("git", "clone", repository.GitUrl, repository.Path);
             
@@ -330,6 +315,19 @@ public class CowRepositoryService : IRepositoryService
             if (process.ExitCode == 0)
             {
                 _logger.LogInformation("Successfully cloned repository {Name} to {Path}", repository.Name, repository.Path);
+
+                // Create settings file with CIDX aware status AFTER successful clone
+                var initialSettings = new Dictionary<string, object>
+                {
+                    ["Name"] = repository.Name,
+                    ["Description"] = repository.Description,
+                    ["GitUrl"] = repository.GitUrl,
+                    ["RegisteredAt"] = repository.RegisteredAt,
+                    ["CloneStatus"] = "cloning",
+                    ["CidxAware"] = cidxAware
+                };
+                await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(initialSettings, AppJsonSerializerContext.Default.DictionaryStringObject));
+                _logger.LogInformation("Created settings file for repository {Name} with CidxAware: {CidxAware}", repository.Name, cidxAware);
 
                 // Run cidx indexing if enabled
                 if (cidxAware)
