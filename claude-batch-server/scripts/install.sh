@@ -1370,23 +1370,56 @@ install_code_indexer() {
 detect_empty_disks() {
     local empty_disks=()
     
-    # Find all block devices that are disks (not partitions)
-    while IFS= read -r line; do
-        local device=$(echo "$line" | awk '{print $1}')
-        local type=$(echo "$line" | awk '{print $2}')
-        local fstype=$(echo "$line" | awk '{print $3}')
-        local size=$(echo "$line" | awk '{print $4}')
-        
-        # Only consider actual disks (not loop devices, etc.) that are empty
-        if [[ "$type" == "disk" && -z "$fstype" && "$device" =~ ^/dev/(sd|nvme|vd) ]]; then
-            # Verify it's truly empty by checking for partitions
-            if ! lsblk "$device" -no TYPE | grep -q "part"; then
-                # Convert size to GB for better display
-                local size_gb=$(echo "$size" | sed 's/G.*//' | awk '{printf "%.0fGB", $1}')
-                empty_disks+=("$device:$size_gb")
+    # Use JSON output for more reliable parsing
+    if command -v jq >/dev/null 2>&1; then
+        # Use jq for JSON parsing if available
+        while IFS= read -r device_info; do
+            local device=$(echo "$device_info" | cut -d'|' -f1)
+            local type=$(echo "$device_info" | cut -d'|' -f2)
+            local fstype=$(echo "$device_info" | cut -d'|' -f3)
+            local size=$(echo "$device_info" | cut -d'|' -f4)
+            
+            # Only consider actual disks that are empty
+            if [[ "$type" == "disk" && ( -z "$fstype" || "$fstype" == "null" ) && "$device" =~ ^/dev/(sd|nvme|vd) ]]; then
+                # Verify it's truly empty by checking for partitions
+                if ! lsblk "$device" -no TYPE | grep -q "part"; then
+                    # Convert size to GB for better display
+                    local size_gb=$(echo "$size" | sed 's/G.*//' | awk '{printf "%.0fGB", $1}')
+                    empty_disks+=("$device:$size_gb")
+                fi
             fi
-        fi
-    done < <(lsblk -dpno NAME,TYPE,FSTYPE,SIZE 2>/dev/null)
+        done < <(lsblk -dpno NAME,TYPE,FSTYPE,SIZE -J 2>/dev/null | jq -r '.blockdevices[] | "\(.name)|\(.type)|\(.fstype // "")|\(.size)"')
+    else
+        # Fallback to manual parsing with better handling of empty FSTYPE
+        while IFS= read -r line; do
+            # Split line into fields and handle empty FSTYPE more carefully
+            local fields=($line)
+            local device="${fields[0]}"
+            local type="${fields[1]}"
+            local fstype=""
+            local size=""
+            
+            # Determine fstype and size based on field content
+            # If field 3 looks like a size (ends with G, M, K, T), then no fstype
+            if [[ "${fields[2]}" =~ ^[0-9.]+[KMGTB]*$ ]]; then
+                fstype=""
+                size="${fields[2]}"
+            else
+                fstype="${fields[2]}"
+                size="${fields[3]}"
+            fi
+            
+            # Only consider actual disks that are empty
+            if [[ "$type" == "disk" && -z "$fstype" && "$device" =~ ^/dev/(sd|nvme|vd) ]]; then
+                # Verify it's truly empty by checking for partitions
+                if ! lsblk "$device" -no TYPE | grep -q "part"; then
+                    # Convert size to GB for better display
+                    local size_gb=$(echo "$size" | sed 's/G.*//' | awk '{printf "%.0fGB", $1}')
+                    empty_disks+=("$device:$size_gb")
+                fi
+            fi
+        done < <(lsblk -dpno NAME,TYPE,FSTYPE,SIZE 2>/dev/null)
+    fi
     
     printf '%s\n' "${empty_disks[@]}"
 }
