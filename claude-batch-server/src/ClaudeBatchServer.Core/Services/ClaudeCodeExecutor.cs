@@ -924,7 +924,7 @@ Prompt to summarize:
                 return (-1, $"User '{username}' not found");
             }
 
-            var result = await ExecuteCidxCommandAsync("uninstall --force", workspacePath, userInfo, cancellationToken);
+            var result = await ExecuteCidxCommandAsync("uninstall", workspacePath, userInfo, cancellationToken);
             
             if (result.ExitCode == 0)
             {

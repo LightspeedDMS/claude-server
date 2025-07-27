@@ -619,7 +619,7 @@ public class CowRepositoryService : IRepositoryService
                 
                 try
                 {
-                    var uninstallResult = await ExecuteCidxCommand("uninstall --force", repository.Path);
+                    var uninstallResult = await ExecuteCidxCommand("uninstall", repository.Path);
                     if (uninstallResult.ExitCode == 0)
                     {
                         _logger.LogInformation("Successfully ran cidx uninstall for repository {Name}", name);
