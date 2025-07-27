@@ -743,7 +743,11 @@ install_prerequisites() {
             sudo dnf install -y curl wget openssl ca-certificates
             ;;
         "ubuntu")
-            sudo apt-get update
+            # Handle potential time sync issues that cause "Release file not valid yet" errors
+            if ! sudo apt-get update 2>/dev/null; then
+                warn "Standard apt update failed, likely due to time sync issues. Retrying with time check disabled..."
+                sudo apt-get -o Acquire::Check-Valid-Until=false update
+            fi
             sudo apt-get install -y curl wget openssl ca-certificates gnupg lsb-release
             ;;
         *)
@@ -842,7 +846,9 @@ install_nginx() {
                 sudo dnf install -y nginx
                 ;;
             "ubuntu")
-                sudo apt-get update
+                if ! sudo apt-get update 2>/dev/null; then
+                    sudo apt-get -o Acquire::Check-Valid-Until=false update
+                fi
                 sudo apt-get install -y nginx
                 ;;
             *)
@@ -1178,7 +1184,9 @@ install_docker() {
                 ;;
             "ubuntu")
                 # Update package index
-                sudo apt-get update
+                if ! sudo apt-get update 2>/dev/null; then
+                    sudo apt-get -o Acquire::Check-Valid-Until=false update
+                fi
                 
                 # Install prerequisites
                 sudo apt-get install -y ca-certificates curl gnupg lsb-release
@@ -1197,7 +1205,9 @@ install_docker() {
                 fi
                 
                 # Install Docker Engine
-                sudo apt-get update
+                if ! sudo apt-get update 2>/dev/null; then
+                    sudo apt-get -o Acquire::Check-Valid-Until=false update
+                fi
                 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
             *)
@@ -1324,7 +1334,9 @@ install_pipx() {
             ;;
         "ubuntu")
             # Install Python 3 and pipx
-            sudo apt-get update
+            if ! sudo apt-get update 2>/dev/null; then
+                sudo apt-get -o Acquire::Check-Valid-Until=false update
+            fi
             sudo apt-get install -y python3 python3-pip python3-venv pipx
             
             # Ensure pipx is in PATH
@@ -1593,7 +1605,12 @@ create_btrfs_workspace() {
             sudo dnf install -y btrfs-progs parted
             ;;
         "ubuntu")
-            sudo apt-get update && sudo apt-get install -y btrfs-progs parted
+            # Handle potential time sync issues that cause "Release file not valid yet" errors
+            if ! sudo apt-get update 2>/dev/null; then
+                warn "Standard apt update failed, likely due to time sync issues. Retrying with time check disabled..."
+                sudo apt-get -o Acquire::Check-Valid-Until=false update
+            fi
+            sudo apt-get install -y btrfs-progs parted
             ;;
     esac
     
