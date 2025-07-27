@@ -1520,6 +1520,8 @@ update_workspace_config() {
 create_btrfs_workspace() {
     local disk="$1"
     local workspace_path="/claude-workspace"
+    local current_user=$(whoami)
+    local current_group=$(id -gn)
     
     log "Creating btrfs workspace on $disk..."
     
