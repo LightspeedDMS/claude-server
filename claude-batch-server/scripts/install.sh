@@ -1503,17 +1503,79 @@ explain_workspace_requirements() {
 # Update appsettings.json with new workspace path
 update_workspace_config() {
     local workspace_path="$1"
-    local config_file="/opt/claude-batch-server/appsettings.json"
+    local config_files=(
+        "/opt/claude-batch-server/appsettings.json"
+        "$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/appsettings.json"
+        "$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.json"
+    )
     
-    if [[ -f "$config_file" ]]; then
-        # Update existing config
-        sudo jq --arg repos_path "$workspace_path/repos" \
-               --arg jobs_path "$workspace_path/jobs" \
-               '.Workspace.RepositoriesPath = $repos_path | .Workspace.JobsPath = $jobs_path' \
-               "$config_file" > /tmp/appsettings.json.tmp && \
-        sudo mv /tmp/appsettings.json.tmp "$config_file"
-        log "Updated workspace configuration to use $workspace_path"
+    local updated=false
+    for config_file in "${config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            log "Updating workspace configuration in $config_file"
+            # Update existing config
+            if jq --arg repos_path "$workspace_path/repos" \
+                  --arg jobs_path "$workspace_path/jobs" \
+                  '.Workspace.RepositoriesPath = $repos_path | .Workspace.JobsPath = $jobs_path' \
+                  "$config_file" > /tmp/appsettings.json.tmp 2>/dev/null; then
+                sudo mv /tmp/appsettings.json.tmp "$config_file"
+                log "✓ Updated workspace configuration in $config_file to use $workspace_path"
+                updated=true
+            else
+                warn "Failed to update configuration in $config_file"
+                rm -f /tmp/appsettings.json.tmp
+            fi
+        fi
+    done
+    
+    if [[ "$updated" != "true" ]]; then
+        warn "No configuration files found to update! Checked:"
+        for config_file in "${config_files[@]}"; do
+            warn "  - $config_file"
+        done
+        warn "The workspace path will need to be manually configured after deployment."
+        return 1
     fi
+    
+    return 0
+}
+
+# Verify workspace configuration is correct
+verify_workspace_config() {
+    local expected_workspace="$1"
+    local config_files=(
+        "/opt/claude-batch-server/appsettings.json"
+        "$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish/appsettings.json"
+        "$PROJECT_DIR/src/ClaudeBatchServer.Api/appsettings.json"
+    )
+    
+    log "Verifying workspace configuration..."
+    local verified=false
+    
+    for config_file in "${config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            local repos_path=$(jq -r '.Workspace.RepositoriesPath // empty' "$config_file" 2>/dev/null)
+            local jobs_path=$(jq -r '.Workspace.JobsPath // empty' "$config_file" 2>/dev/null)
+            
+            if [[ "$repos_path" == "$expected_workspace/repos" && "$jobs_path" == "$expected_workspace/jobs" ]]; then
+                log "✓ Configuration verified in $config_file"
+                log "  - RepositoriesPath: $repos_path"
+                log "  - JobsPath: $jobs_path"
+                verified=true
+            else
+                warn "⚠ Configuration mismatch in $config_file:"
+                warn "  - Expected repos: $expected_workspace/repos, found: $repos_path"
+                warn "  - Expected jobs: $expected_workspace/jobs, found: $jobs_path"
+            fi
+        fi
+    done
+    
+    if [[ "$verified" != "true" ]]; then
+        warn "⚠ Workspace configuration could not be verified"
+        return 1
+    fi
+    
+    return 0
 }
 
 # Create dedicated btrfs workspace
@@ -3271,6 +3333,19 @@ main() {
     configure_cow
     setup_logging
     build_and_deploy
+    
+    # Update workspace configuration after deployment if btrfs workspace exists
+    if mountpoint -q /claude-workspace 2>/dev/null; then
+        log "Updating configuration to use btrfs workspace..."
+        if update_workspace_config "/claude-workspace"; then
+            log "✓ Configuration updated to use btrfs workspace"
+            # Verify the configuration was applied correctly
+            verify_workspace_config "/claude-workspace"
+        else
+            warn "⚠ Failed to update configuration - workspace path may need manual configuration"
+        fi
+    fi
+    
     install_claude_server_cli
     
     # Production-specific components
