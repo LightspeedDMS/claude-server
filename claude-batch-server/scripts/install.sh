@@ -743,16 +743,7 @@ install_prerequisites() {
             sudo dnf install -y curl wget openssl ca-certificates
             ;;
         "ubuntu")
-            # Handle potential time sync issues that cause "Release file not valid yet" errors
-            local update_output
-            update_output=$(sudo apt-get update 2>&1)
-            if echo "$update_output" | grep -q "not valid yet"; then
-                warn "Detected time sync issues in apt update. Retrying with time checks disabled..."
-                sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-            elif [[ $? -ne 0 ]]; then
-                warn "Standard apt update failed. Retrying with time checks disabled..."
-                sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-            fi
+            sudo apt-get update
             sudo apt-get install -y curl wget openssl ca-certificates gnupg lsb-release
             ;;
         *)
@@ -851,11 +842,7 @@ install_nginx() {
                 sudo dnf install -y nginx
                 ;;
             "ubuntu")
-                local update_output
-                update_output=$(sudo apt-get update 2>&1)
-                if echo "$update_output" | grep -q "not valid yet"; then
-                    sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-                fi
+                sudo apt-get update
                 sudo apt-get install -y nginx
                 ;;
             *)
@@ -1191,11 +1178,7 @@ install_docker() {
                 ;;
             "ubuntu")
                 # Update package index
-                local update_output
-                update_output=$(sudo apt-get update 2>&1)
-                if echo "$update_output" | grep -q "not valid yet"; then
-                    sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-                fi
+                sudo apt-get update
                 
                 # Install prerequisites
                 sudo apt-get install -y ca-certificates curl gnupg lsb-release
@@ -1214,11 +1197,7 @@ install_docker() {
                 fi
                 
                 # Install Docker Engine
-                local update_output2
-                update_output2=$(sudo apt-get update 2>&1)
-                if echo "$update_output2" | grep -q "not valid yet"; then
-                    sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-                fi
+                sudo apt-get update
                 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
             *)
@@ -1345,11 +1324,7 @@ install_pipx() {
             ;;
         "ubuntu")
             # Install Python 3 and pipx
-            local update_output
-            update_output=$(sudo apt-get update 2>&1)
-            if echo "$update_output" | grep -q "not valid yet"; then
-                sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-            fi
+            sudo apt-get update
             sudo apt-get install -y python3 python3-pip python3-venv pipx
             
             # Ensure pipx is in PATH
@@ -1618,14 +1593,7 @@ create_btrfs_workspace() {
             sudo dnf install -y btrfs-progs parted
             ;;
         "ubuntu")
-            # Handle potential time sync issues that cause "Release file not valid yet" errors
-            local update_output
-            update_output=$(sudo apt-get update 2>&1)
-            if echo "$update_output" | grep -q "not valid yet"; then
-                warn "Detected time sync issues in apt update. Retrying with time checks disabled..."
-                sudo apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update
-            fi
-            sudo apt-get install -y btrfs-progs parted
+            sudo apt-get update && sudo apt-get install -y btrfs-progs parted
             ;;
     esac
     
