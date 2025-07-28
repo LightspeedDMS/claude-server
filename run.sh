@@ -47,7 +47,7 @@ show_help() {
     echo -e "    ${GREEN}stop${NC}            - Stop running services"
     echo -e "    ${GREEN}test${NC}            - Run tests"
     echo -e "    ${GREEN}docker${NC}          - Docker operations"
-    echo -e "    ${GREEN}install${NC}         - Install dependencies"
+    echo -e "    ${GREEN}install${NC}         - Install system dependencies (wraps install.sh)"
     echo ""
     echo -e "${YELLOW}MODES:${NC}"
     echo -e "    ${GREEN}dev${NC}             - Development mode (default)"
@@ -66,6 +66,19 @@ show_help() {
     echo -e "    ${GREEN}build${NC}           - Build Docker images"
     echo -e "    ${GREEN}logs${NC}            - Show Docker logs"
     echo ""
+    echo -e "${YELLOW}INSTALL OPTIONS:${NC}"
+    echo -e "    ${GREEN}--production${NC}    - Install in production mode (nginx, SSL, firewall)"
+    echo -e "    ${GREEN}--development${NC}   - Install in development mode (default)"
+    echo -e "    ${GREEN}--dev${NC}           - Alias for --development"
+    echo -e "    ${GREEN}--dry-run${NC}       - Show what would be installed without making changes"
+    echo -e "    ${GREEN}--ssl-country${NC}   - SSL certificate country code (2 letters)"
+    echo -e "    ${GREEN}--ssl-state${NC}     - SSL certificate state/province"
+    echo -e "    ${GREEN}--ssl-city${NC}      - SSL certificate city"
+    echo -e "    ${GREEN}--ssl-org${NC}       - SSL certificate organization"
+    echo -e "    ${GREEN}--ssl-ou${NC}        - SSL certificate organizational unit"
+    echo -e "    ${GREEN}--ssl-cn${NC}        - SSL certificate common name (hostname/FQDN)"
+    echo -e "    ${GREEN}--help${NC}          - Show install help"
+    echo ""
     echo -e "${YELLOW}EXAMPLES:${NC}"
     echo "    ./run.sh server dev              # Start server in development"
     echo "    ./run.sh web                     # Start web UI (dev mode default)"
@@ -77,7 +90,10 @@ show_help() {
     echo "    ./run.sh test e2e                # Run E2E tests"
     echo "    ./run.sh test all                # Run all tests"
     echo "    ./run.sh docker up               # Start with Docker"
-    echo "    ./run.sh install                 # Install all dependencies"
+    echo "    ./run.sh install                 # Install system dependencies (development mode)"
+    echo "    ./run.sh install --production    # Install with nginx, SSL, and firewall"
+    echo "    ./run.sh install --dry-run       # Show what would be installed"
+    echo "    ./run.sh install --production --ssl-cn server.example.com  # Production with SSL"
     echo ""
     echo -e "${YELLOW}ENVIRONMENT VARIABLES:${NC}"
     echo -e "    ${GREEN}PORT${NC}            - Server port (default: 5000)"
@@ -88,6 +104,11 @@ show_help() {
     echo -e "    ${GREEN}.env${NC}            - Main environment variables"
     echo -e "    ${GREEN}.env.test${NC}       - Test environment variables"
     echo -e "    ${GREEN}appsettings.json${NC} - Server configuration"
+    echo ""
+    echo -e "${YELLOW}NOTES:${NC}"
+    echo -e "    • The 'install' command wraps ./claude-batch-server/scripts/install.sh"
+    echo -e "    • Installation script handles sudo privileges automatically as needed"
+    echo -e "    • Use --dry-run to see what would be installed before making changes"
     echo ""
     echo "For more information, see: https://github.com/jsbattig/claude-server"
 }
@@ -122,46 +143,21 @@ check_dependencies() {
     
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         error "Missing dependencies: ${missing_deps[*]}"
-        log "Run './run.sh install' to install dependencies"
+        log "Run './run.sh install' to install system dependencies"
         exit 1
     fi
 }
 
-# Install dependencies
+# Install dependencies - wrapper for install.sh script
 install_dependencies() {
-    log "Installing dependencies..."
+    log "Running Claude Batch Server installation script..."
     
-    # Check if running as root for system dependencies
-    if [[ $EUID -eq 0 ]]; then
-        log "Running system installation script..."
-        "$PROJECT_ROOT/claude-batch-server/scripts/install.sh"
-    else
-        warn "Not running as root, installing user dependencies only..."
-        
-        # Install .NET if not present
-        if ! command -v dotnet >/dev/null 2>&1 && [[ ! -f "$HOME/.dotnet/dotnet" ]]; then
-            log "Installing .NET SDK..."
-            curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0
-            export PATH="$HOME/.dotnet:$PATH"
-            export DOTNET_ROOT="$HOME/.dotnet"
-        fi
-        
-        # Install Node.js dependencies for web UI
-        if [[ -d "$PROJECT_ROOT/claude-web-ui" ]]; then
-            log "Installing web UI dependencies..."
-            cd "$PROJECT_ROOT/claude-web-ui"
-            npm install
-        fi
-        
-        # Restore .NET packages
-        if [[ -d "$PROJECT_ROOT/claude-batch-server" ]]; then
-            log "Restoring .NET packages..."
-            cd "$PROJECT_ROOT/claude-batch-server"
-            dotnet restore
-        fi
-    fi
+    # Get all arguments after 'install' command
+    # The first argument is 'install', so we skip it
+    local install_args=("${@:2}")
     
-    log "Dependencies installation completed"
+    # Pass all remaining arguments to the actual install script
+    "$PROJECT_ROOT/claude-batch-server/scripts/install.sh" "${install_args[@]}"
 }
 
 # Start Claude Batch Server
@@ -381,7 +377,7 @@ main() {
             show_help
             ;;
         "install")
-            install_dependencies
+            install_dependencies "$@"
             ;;
         "server")
             check_dependencies "$component"
