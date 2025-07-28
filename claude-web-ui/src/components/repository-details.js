@@ -106,7 +106,7 @@ export class RepositoryDetailsComponent {
             <div class="info-grid">
               <div class="info-item">
                 <label class="info-label">Name</label>
-                <span class="info-value" data-testid="repository-name">${this.escapeHtml(this.repository.name)}</span>
+                <span class="info-value" data-testid="repository-name">${this.escapeHtml(this.repository.Name)}</span>
               </div>
               
               <div class="info-item">
@@ -116,42 +116,42 @@ export class RepositoryDetailsComponent {
               
               <div class="info-item">
                 <label class="info-label">Type</label>
-                <span class="info-value">${this.repository.type || 'Git'}</span>
+                <span class="info-value">${this.repository.Type || 'Git'}</span>
               </div>
               
               <div class="info-item">
                 <label class="info-label">Size</label>
-                <span class="info-value" data-testid="repository-size">${this.formatSize(this.repository.size || 0)}</span>
+                <span class="info-value" data-testid="repository-size">${this.formatSize(this.repository.Size || 0)}</span>
               </div>
 
-              ${this.repository.cidxAware !== undefined ? `
+              ${this.repository.CidxAware !== undefined ? `
                 <div class="info-item">
                   <label class="info-label">Cidx Aware</label>
-                  <span class="info-value cidx-aware-${this.repository.cidxAware}" data-testid="repository-cidx-aware">
-                    ${this.repository.cidxAware ? '🧠 Yes' : '❌ No'}
+                  <span class="info-value cidx-aware-${this.repository.CidxAware}" data-testid="repository-cidx-aware">
+                    ${this.repository.CidxAware ? '🧠 Yes' : '❌ No'}
                   </span>
                 </div>
               ` : ''}
               
-              ${this.repository.description ? `
+              ${this.repository.Description ? `
                 <div class="info-item info-item-full">
                   <label class="info-label">Description</label>
-                  <span class="info-value" data-testid="repository-description">${this.escapeHtml(this.repository.description)}</span>
+                  <span class="info-value" data-testid="repository-description">${this.escapeHtml(this.repository.Description)}</span>
                 </div>
               ` : ''}
               
               <div class="info-item">
                 <label class="info-label">Git URL</label>
                 <span class="info-value git-url" data-testid="repository-git-url">
-                  <a href="${this.escapeHtml(this.repository.gitUrl || '')}" target="_blank" rel="noopener noreferrer">
-                    ${this.escapeHtml(this.repository.gitUrl || 'N/A')}
+                  <a href="${this.escapeHtml(this.repository.GitUrl || '')}" target="_blank" rel="noopener noreferrer">
+                    ${this.escapeHtml(this.repository.GitUrl || 'N/A')}
                   </a>
                 </span>
               </div>
               
               <div class="info-item">
                 <label class="info-label">Local Path</label>
-                <span class="info-value code" data-testid="repository-path">${this.escapeHtml(this.repository.path || 'N/A')}</span>
+                <span class="info-value code" data-testid="repository-path">${this.escapeHtml(this.repository.Path || 'N/A')}</span>
               </div>
             </div>
           </div>
@@ -217,7 +217,7 @@ export class RepositoryDetailsComponent {
   renderGitMetadata() {
     if (!this.repository) return ''
 
-    const hasGitData = this.repository.currentBranch || this.repository.commitHash || this.repository.remoteUrl
+    const hasGitData = this.repository.CurrentBranch || this.repository.CommitHash || this.repository.RemoteUrl
 
     if (!hasGitData) {
       return `
@@ -239,67 +239,67 @@ export class RepositoryDetailsComponent {
         </div>
         <div class="card-body">
           <div class="git-info-grid">
-            ${this.repository.currentBranch ? `
+            ${this.repository.CurrentBranch ? `
               <div class="git-info-item">
                 <label class="git-info-label">Current Branch</label>
                 <span class="git-info-value branch-name" data-testid="repository-branch">
-                  <span class="branch-icon">🌿</span> ${this.escapeHtml(this.repository.currentBranch)}
+                  <span class="branch-icon">🌿</span> ${this.escapeHtml(this.repository.CurrentBranch)}
                 </span>
               </div>
             ` : ''}
             
-            ${this.repository.remoteUrl ? `
+            ${this.repository.RemoteUrl ? `
               <div class="git-info-item">
                 <label class="git-info-label">Remote URL</label>
-                <span class="git-info-value" data-testid="repository-remote-url">${this.escapeHtml(this.repository.remoteUrl)}</span>
+                <span class="git-info-value" data-testid="repository-remote-url">${this.escapeHtml(this.repository.RemoteUrl)}</span>
               </div>
             ` : ''}
             
-            ${this.repository.commitHash ? `
+            ${this.repository.CommitHash ? `
               <div class="git-info-item">
                 <label class="git-info-label">Latest Commit</label>
                 <div class="commit-info" data-testid="repository-commit-info">
                   <div class="commit-hash" data-testid="repository-commit-hash">
-                    <span class="commit-icon">📝</span> ${this.repository.commitHash.substring(0, 8)}...
+                    <span class="commit-icon">📝</span> ${this.repository.CommitHash.substring(0, 8)}...
                   </div>
-                  ${this.repository.commitMessage ? `
+                  ${this.repository.CommitMessage ? `
                     <div class="commit-message" data-testid="repository-commit-message">
-                      ${this.escapeHtml(this.repository.commitMessage)}
+                      ${this.escapeHtml(this.repository.CommitMessage)}
                     </div>
                   ` : ''}
-                  ${this.repository.commitAuthor ? `
+                  ${this.repository.CommitAuthor ? `
                     <div class="commit-author" data-testid="repository-commit-author">
-                      by ${this.escapeHtml(this.repository.commitAuthor)}
+                      by ${this.escapeHtml(this.repository.CommitAuthor)}
                     </div>
                   ` : ''}
-                  ${this.repository.commitDate ? `
+                  ${this.repository.CommitDate ? `
                     <div class="commit-date">
-                      ${new Date(this.repository.commitDate).toLocaleString()}
+                      ${new Date(this.repository.CommitDate).toLocaleString()}
                     </div>
                   ` : ''}
                 </div>
               </div>
             ` : ''}
             
-            ${this.repository.aheadBehind ? `
+            ${this.repository.AheadBehind ? `
               <div class="git-info-item">
                 <label class="git-info-label">Sync Status</label>
                 <div class="sync-status" data-testid="repository-sync-status">
-                  ${this.repository.aheadBehind.ahead === 0 && this.repository.aheadBehind.behind === 0 ? `
+                  ${this.repository.AheadBehind.ahead === 0 && this.repository.AheadBehind.behind === 0 ? `
                     <span class="sync-up-to-date">✅ Up to date</span>
                   ` : `
-                    ${this.repository.aheadBehind.ahead > 0 ? `<span class="sync-ahead">↑ ${this.repository.aheadBehind.ahead} ahead</span>` : ''}
-                    ${this.repository.aheadBehind.behind > 0 ? `<span class="sync-behind">↓ ${this.repository.aheadBehind.behind} behind</span>` : ''}
+                    ${this.repository.AheadBehind.ahead > 0 ? `<span class="sync-ahead">↑ ${this.repository.AheadBehind.ahead} ahead</span>` : ''}
+                    ${this.repository.AheadBehind.behind > 0 ? `<span class="sync-behind">↓ ${this.repository.AheadBehind.behind} behind</span>` : ''}
                   `}
                 </div>
               </div>
             ` : ''}
             
-            ${this.repository.hasUncommittedChanges !== undefined ? `
+            ${this.repository.HasUncommittedChanges !== undefined ? `
               <div class="git-info-item">
                 <label class="git-info-label">Working Directory</label>
                 <span class="working-dir-status">
-                  ${this.repository.hasUncommittedChanges ? 
+                  ${this.repository.HasUncommittedChanges ? 
                     '<span class="uncommitted-changes">⚠️ Has uncommitted changes</span>' : 
                     '<span class="clean">✅ Clean'
                   }
@@ -317,29 +317,29 @@ export class RepositoryDetailsComponent {
 
     const events = []
 
-    if (this.repository.registeredAt) {
+    if (this.repository.RegisteredAt) {
       events.push({
         type: 'registered',
-        date: this.repository.registeredAt,
+        date: this.repository.RegisteredAt,
         title: 'Repository Registered',
         description: 'Repository was registered and clone started'
       })
     }
 
-    if (this.repository.lastPull) {
+    if (this.repository.LastPull) {
       events.push({
         type: 'pull',
-        date: this.repository.lastPull,
+        date: this.repository.LastPull,
         title: 'Last Pull',
-        description: `Status: ${this.repository.lastPullStatus || 'Unknown'}`,
-        status: this.repository.lastPullStatus
+        description: `Status: ${this.repository.LastPullStatus || 'Unknown'}`,
+        status: this.repository.LastPullStatus
       })
     }
 
-    if (this.repository.lastModified) {
+    if (this.repository.LastModified) {
       events.push({
         type: 'modified',
-        date: this.repository.lastModified,
+        date: this.repository.LastModified,
         title: 'Last Modified',
         description: 'Repository contents were last updated'
       })

@@ -153,21 +153,21 @@ export class JobListComponent {
 
       switch (this.sortBy) {
         case 'title':
-          valueA = a.title.toLowerCase()
-          valueB = b.title.toLowerCase()
+          valueA = a.Title.toLowerCase()
+          valueB = b.Title.toLowerCase()
           break
         case 'status':
-          valueA = a.status.toLowerCase()
-          valueB = b.status.toLowerCase()
+          valueA = a.Status.toLowerCase()
+          valueB = b.Status.toLowerCase()
           break
         case 'repository':
-          valueA = a.repository.toLowerCase()
-          valueB = b.repository.toLowerCase()
+          valueA = a.Repository.toLowerCase()
+          valueB = b.Repository.toLowerCase()
           break
         case 'created':
         default:
-          valueA = new Date(a.started)
-          valueB = new Date(b.started)
+          valueA = new Date(a.Started)
+          valueB = new Date(b.Started)
           break
       }
 
@@ -387,7 +387,7 @@ export class JobListComponent {
 
   updateJobStatus(jobId, status) {
     // Update job in local array
-    const job = this.jobs.find(j => j.jobId === jobId)
+    const job = this.jobs.find(j => j.JobId === jobId)
     if (job) {
       job.Status = status.status
       // Update the card in the DOM
@@ -444,10 +444,10 @@ export class JobListComponent {
   calculateStats() {
     return {
       total: this.jobs.length,
-      running: this.jobs.filter(j => ['running', 'git_pulling', 'cidx_indexing'].includes(j.status.toLowerCase())).length,
-      queued: this.jobs.filter(j => j.status.toLowerCase() === 'queued').length,
-      completed: this.jobs.filter(j => j.status.toLowerCase() === 'completed').length,
-      failed: this.jobs.filter(j => ['failed', 'timeout'].includes(j.status.toLowerCase())).length
+      running: this.jobs.filter(j => ['running', 'git_pulling', 'cidx_indexing'].includes(j.Status.toLowerCase())).length,
+      queued: this.jobs.filter(j => j.Status.toLowerCase() === 'queued').length,
+      completed: this.jobs.filter(j => j.Status.toLowerCase() === 'completed').length,
+      failed: this.jobs.filter(j => ['failed', 'timeout'].includes(j.Status.toLowerCase())).length
     }
   }
 
@@ -731,7 +731,7 @@ export class JobListComponent {
       const detailedJob = await apiClient.getJob(jobId)
       
       // Update job in local array
-      const jobIndex = this.jobs.findIndex(j => j.jobId === jobId)
+      const jobIndex = this.jobs.findIndex(j => j.JobId === jobId)
       if (jobIndex !== -1) {
         this.jobs[jobIndex] = { ...this.jobs[jobIndex], ...detailedJob }
         
@@ -787,7 +787,7 @@ export class JobListComponent {
   }
 
   async copyJobOutput(jobId) {
-    const job = this.jobs.find(j => j.jobId === jobId)
+    const job = this.jobs.find(j => j.JobId === jobId)
     if (!job || !job.Output) return
 
     try {
@@ -811,7 +811,7 @@ export class JobListComponent {
   }
 
   downloadJobOutput(jobId) {
-    const job = this.jobs.find(j => j.jobId === jobId)
+    const job = this.jobs.find(j => j.JobId === jobId)
     if (!job || !job.Output) return
 
     const blob = new Blob([job.Output], { type: 'text/plain' })
