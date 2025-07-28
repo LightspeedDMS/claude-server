@@ -451,12 +451,18 @@ public class CowRepositoryService : IRepositoryService
                 // Ensure directory exists for settings file
                 Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
                 
+                // Try to get the original registration data from memory/cache or use defaults
+                // This ensures we don't lose GitUrl and other metadata during status updates
+                var gitMetadata = await _gitMetadataService.GetGitMetadataAsync(repositoryPath);
+                
                 settings = new Dictionary<string, object>
                 {
                     ["Name"] = repositoryName,
                     ["CloneStatus"] = status,
-                    ["RegisteredAt"] = DateTime.UtcNow,
-                    ["CidxAware"] = false // Will be updated later when we know the actual value
+                    ["RegisteredAt"] = DateTime.UtcNow, // Use current time if original not available
+                    ["CidxAware"] = false, // Will be updated later when we know the actual value
+                    ["GitUrl"] = gitMetadata?.RemoteUrl ?? "N/A", // Preserve Git URL from repository metadata
+                    ["Description"] = "" // Default empty description
                 };
             }
             else

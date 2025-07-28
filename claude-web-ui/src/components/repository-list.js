@@ -604,7 +604,7 @@ export class RepositoryListComponent {
       cloning: this.repositories.filter(r => this.getRepositoryStatus(r) === 'cloning').length,
       indexing: this.repositories.filter(r => this.getRepositoryStatus(r) === 'indexing').length,
       failed: this.repositories.filter(r => this.getRepositoryStatus(r) === 'failed').length,
-      totalSize: this.repositories.reduce((sum, r) => sum + (r.size || 0), 0)
+      totalSize: this.repositories.reduce((sum, r) => sum + (r.Size || 0), 0)
     }
   }
 
