@@ -1107,8 +1107,8 @@ class ClaudeWebUI {
           </div>
           <div class="detail-row">
             <span class="detail-label">Cidx Aware:</span>
-            <span class="detail-value cidx-aware-${repo.cidxAware}">
-              ${repo.cidxAware ? (this.getRepositoryStatus(repo) === 'failed' ? '❌ Failed' : '🧠 Yes') : '❌ No'}
+            <span class="detail-value cidx-aware-${repo.cidxAware || repo.CidxAware}">
+              ${(repo.cidxAware || repo.CidxAware) ? (this.getRepositoryStatus(repo) === 'failed' ? '❌ Failed' : '🧠 Yes') : '❌ No'}
             </span>
           </div>
           <div class="detail-row">
@@ -1151,21 +1151,25 @@ class ClaudeWebUI {
   }
 
   hasRepositoryChanged(cachedRepo, newRepo) {
-    // Check key fields that might change
+    // Check key fields that might change - handle undefined/null values properly
     const changed = (
-      cachedRepo.cloneStatus !== newRepo.cloneStatus ||
-      cachedRepo.size !== newRepo.size ||
-      cachedRepo.lastModified !== newRepo.lastModified ||
-      cachedRepo.currentBranch !== newRepo.currentBranch ||
-      cachedRepo.commitHash !== newRepo.commitHash ||
-      cachedRepo.commitMessage !== newRepo.commitMessage
+      (cachedRepo.cloneStatus || '') !== (newRepo.cloneStatus || '') ||
+      (cachedRepo.size || 0) !== (newRepo.size || 0) ||
+      (cachedRepo.lastModified || '') !== (newRepo.lastModified || '') ||
+      (cachedRepo.currentBranch || '') !== (newRepo.currentBranch || '') ||
+      (cachedRepo.commitHash || '') !== (newRepo.commitHash || '') ||
+      (cachedRepo.commitMessage || '') !== (newRepo.commitMessage || '') ||
+      (cachedRepo.cidxAware || cachedRepo.CidxAware || false) !== (newRepo.cidxAware || newRepo.CidxAware || false) ||
+      (cachedRepo.gitUrl || '') !== (newRepo.gitUrl || '') ||
+      (cachedRepo.description || '') !== (newRepo.description || '')
     );
     
     if (changed) {
       console.log('Repository changed:', newRepo.name, {
-        cloneStatus: `${cachedRepo.cloneStatus} → ${newRepo.cloneStatus}`,
-        size: cachedRepo.size !== newRepo.size ? `${cachedRepo.size} → ${newRepo.size}` : 'unchanged',
-        lastModified: cachedRepo.lastModified !== newRepo.lastModified ? 'changed' : 'unchanged'
+        cloneStatus: `${cachedRepo.cloneStatus || 'undefined'} → ${newRepo.cloneStatus || 'undefined'}`,
+        size: (cachedRepo.size || 0) !== (newRepo.size || 0) ? `${cachedRepo.size || 0} → ${newRepo.size || 0}` : 'unchanged',
+        lastModified: (cachedRepo.lastModified || '') !== (newRepo.lastModified || '') ? 'changed' : 'unchanged',
+        cidxAware: (cachedRepo.cidxAware || cachedRepo.CidxAware || false) !== (newRepo.cidxAware || newRepo.CidxAware || false) ? `${cachedRepo.cidxAware || cachedRepo.CidxAware} → ${newRepo.cidxAware || newRepo.CidxAware}` : 'unchanged'
       });
     }
     
@@ -1448,10 +1452,10 @@ class ClaudeWebUI {
 
       try {
         const repoData = {
-          Name: name,
-          GitUrl: url,
-          Description: description || `Repository: ${name}`,
-          CidxAware: cidxAware
+          name: name,
+          gitUrl: url,
+          description: description || `Repository: ${name}`,
+          cidxAware: cidxAware
         };
 
         await ClaudeApi.registerRepository(repoData);
@@ -1464,6 +1468,9 @@ class ClaudeWebUI {
           ? `Repository '${name}' registration started! Cloning and indexing may take a while for large repositories.`
           : `Repository '${name}' registration started! Cloning in progress.`;
         this.showToast(statusMessage, 'success');
+        
+        // Clear repository cache to force fresh load of new repository
+        this.cachedRepositories.clear();
         
         // Navigate to repositories view to show the new repo with status
         if (this.currentView !== 'repositories') {

@@ -92,7 +92,8 @@ public class RepositoriesController : ControllerBase
                 Description = repository.Description,
                 GitUrl = repository.GitUrl,
                 RegisteredAt = repository.RegisteredAt,
-                CloneStatus = repository.CloneStatus
+                CloneStatus = repository.CloneStatus,
+                CidxAware = request.CidxAware
             };
 
             return CreatedAtAction(nameof(GetRepositories), response);

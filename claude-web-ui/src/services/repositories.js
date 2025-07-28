@@ -21,6 +21,7 @@ export class RepositoryService {
         name: repoData.name,
         gitUrl: repoData.gitUrl,
         description: repoData.description || '',
+        cidxAware: repoData.cidxAware !== undefined ? repoData.cidxAware : true,
       }),
     });
   }

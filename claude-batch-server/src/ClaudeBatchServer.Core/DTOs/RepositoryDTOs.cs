@@ -48,6 +48,7 @@ public class RegisterRepositoryResponse
     public string GitUrl { get; set; } = string.Empty;
     public DateTime RegisteredAt { get; set; }
     public string CloneStatus { get; set; } = "cloning";
+    public bool CidxAware { get; set; }
 }
 
 public class UnregisterRepositoryResponse

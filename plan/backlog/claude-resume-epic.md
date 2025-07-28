@@ -12,6 +12,15 @@ The --resume feature enables true iterative workflows by allowing users to conti
 
 ## Architecture Analysis
 
+### CIDX Watch Integration
+The resume functionality leverages a new CIDX watch-based approach for real-time index maintenance during job execution, eliminating the need for post-execution reconciliation. This provides performance benefits and immediate user feedback when Claude Code completes.
+
+**Related Implementation**: See detailed implementation plan in `/backlog/cidx-watch-implementation-plan.md` for:
+- Process lifecycle management for CIDX watch
+- Fallback mechanisms to reconcile on watch failures
+- Performance optimization through real-time indexing
+- Zero-downtime transition from current reconcile approach
+
 ### Current System Architecture
 Based on deep codebase exploration, the current system:
 
@@ -264,10 +273,10 @@ private async Task<(int ExitCode, string Output)> LaunchClaudeCodeWithRedirectio
 {
     try
     {
-        // For resumed jobs, restart CIDX with reconcile to catch file changes
+        // For resumed jobs, start CIDX watch to maintain real-time indexing
         if (!string.IsNullOrEmpty(job.ResumePrompt) && job.Options.CidxAware)
         {
-            await RestartCidxForResumedJobAsync(job.CowPath);
+            await StartCidxWatchForResumedJobAsync(job.CowPath);
         }
         
         // Update lock file with actual PID once process starts
@@ -298,11 +307,11 @@ private async Task<(int ExitCode, string Output)> LaunchClaudeCodeWithRedirectio
     }
 }
 
-private async Task RestartCidxForResumedJobAsync(string workspacePath)
+private async Task StartCidxWatchForResumedJobAsync(string workspacePath)
 {
     try
     {
-        _logger.LogInformation("Restarting CIDX with reconcile for resumed job in workspace: {WorkspacePath}", workspacePath);
+        _logger.LogInformation("Starting CIDX watch for resumed job in workspace: {WorkspacePath}", workspacePath);
         
         // Stop any existing cidx containers
         await ExecuteCidxCommandAsync("stop", workspacePath);
@@ -315,16 +324,28 @@ private async Task RestartCidxForResumedJobAsync(string workspacePath)
             return;
         }
         
-        // Run index reconcile to catch any new files
-        var reconcileResult = await ExecuteCidxCommandAsync("index --reconcile", workspacePath);
-        if (reconcileResult.ExitCode != 0)
+        // Launch CIDX watch process for real-time indexing
+        var watchProcess = await LaunchCidxWatchAsync(workspacePath, userInfo, cancellationToken);
+        if (watchProcess == null)
         {
-            _logger.LogWarning("Failed to reconcile CIDX index for resumed job: {Output}", reconcileResult.Output);
+            _logger.LogWarning("Failed to start CIDX watch for resumed job, falling back to reconcile");
+            // Fallback to reconcile if watch fails
+            var reconcileResult = await ExecuteCidxCommandAsync("index --reconcile", workspacePath);
+            if (reconcileResult.ExitCode != 0)
+            {
+                _logger.LogWarning("Failed to reconcile CIDX index for resumed job: {Output}", reconcileResult.Output);
+            }
+        }
+        else
+        {
+            _logger.LogInformation("CIDX watch started successfully for resumed job with PID {ProcessId}", watchProcess.Id);
+            // Store watch process for cleanup when job completes
+            job.CidxWatchProcessId = watchProcess.Id;
         }
     }
     catch (Exception ex)
     {
-        _logger.LogError(ex, "Error restarting CIDX for resumed job in workspace: {WorkspacePath}", workspacePath);
+        _logger.LogError(ex, "Error starting CIDX watch for resumed job in workspace: {WorkspacePath}", workspacePath);
     }
 }
 
@@ -841,7 +862,8 @@ const resumeManager = new JobResumeManager();
 ### Phase 2: Claude Code Integration (Week 1)
 - ✅ Modify `BuildClaudeArgumentsAsync` to support --resume flag
 - ✅ Integrate `IClaudeCodeSessionService` for session ID retrieval
-- ✅ Implement CIDX restart logic for resumed jobs
+- ✅ Implement CIDX watch integration for resumed jobs (see cidx-watch-implementation-plan.md)
+- ✅ Add fallback to reconcile when CIDX watch fails
 - ✅ Add output appending with timestamp separators
 - ✅ Integration tests with real Claude Code execution
 
@@ -865,7 +887,8 @@ const resumeManager = new JobResumeManager();
 - ✅ Users can resume completed jobs with new prompts
 - ✅ Resumed jobs maintain workspace context and files
 - ✅ Claude Code sessions continue with full context
-- ✅ CIDX containers restart properly for semantic search
+- ✅ CIDX watch provides real-time indexing during resumed job execution
+- ✅ Automatic fallback to reconcile when CIDX watch fails
 - ✅ Job relationships are tracked for audit trail
 - ✅ Original job outputs are preserved with clear separation
 
@@ -880,6 +903,8 @@ const resumeManager = new JobResumeManager();
 - ✅ Session IDs correctly retrieved from Claude projects directory
 - ✅ Workspace reuse prevents unnecessary CoW clones
 - ✅ File uploads work correctly in existing workspaces
+- ✅ CIDX watch processes managed properly for resumed jobs
+- ✅ Watch process cleanup prevents resource leaks
 - ✅ Job cleanup considers resumed job relationships
 - ✅ API responses include parent/child job relationships
 
