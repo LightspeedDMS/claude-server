@@ -245,6 +245,11 @@ public class CowRepositoryService : IRepositoryService
             }
 
             repositories.Add(repository);
+            
+            // Debug logging for repository data being returned to API
+            _logger.LogInformation("Repository {Name}: CloneStatus={CloneStatus}, CidxAware={CidxAware}, GitUrl={GitUrl}, RegisteredAt={RegisteredAt}", 
+                repository.Name, repository.CloneStatus ?? "null", repository.CidxAware?.ToString() ?? "null", 
+                repository.GitUrl ?? "null", repository.RegisteredAt?.ToString() ?? "null");
         }
 
         return repositories.OrderBy(r => r.Name).ToList();
