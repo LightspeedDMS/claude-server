@@ -622,6 +622,9 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task<(int ExitCode, string Output)> ExecuteCidxCommand(string cidxArgs, string workingDirectory)
     {
+        Console.WriteLine($"🐳🐳🐳 CIDX COMMAND CALLED: {cidxArgs} in {workingDirectory}");
+        System.Diagnostics.Debug.WriteLine($"🐳🐳🐳 CIDX COMMAND CALLED: {cidxArgs} in {workingDirectory}");
+        
         // CRITICAL: Add correct force flags for Docker/Podman container management commands
         var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
         var forceOnlyCommands = new[] { "init", "fix-config" };
@@ -631,17 +634,25 @@ public class CowRepositoryService : IRepositoryService
         
         string finalArgs = cidxArgs;
         
+        // DEBUG: Always log CIDX command execution for debugging
+        _logger.LogWarning("🐳 CIDX DEBUG: Executing command '{Command}' - needsForceDocker: {NeedsForceDocker}, needsForce: {NeedsForce}", 
+            cidxArgs, needsForceDocker, needsForce);
+        
         if (needsForceDocker && !cidxArgs.Contains("--force-docker")) 
         {
             finalArgs = $"{cidxArgs} --force-docker";
-            _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
+            _logger.LogWarning("🐳 DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
                 cidxArgs, finalArgs);
         }
         else if (needsForce && !cidxArgs.Contains("--force"))
         {
             finalArgs = $"{cidxArgs} --force";
-            _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
+            _logger.LogWarning("🐳 DOCKER COMPATIBILITY: Adding --force flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
                 cidxArgs, finalArgs);
+        }
+        else
+        {
+            _logger.LogWarning("🐳 CIDX DEBUG: No flags added to command '{Command}' - using as-is", cidxArgs);
         }
 
         var processInfo = new ProcessStartInfo

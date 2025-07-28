@@ -691,6 +691,8 @@ public class JobService : IJobService, IJobStatusCallback
     /// </summary>
     private async Task<(int ExitCode, string Output)> ExecuteCidxCommandAsync(string cidxArgs, string workingDirectory)
     {
+        Console.WriteLine($"🐳🐳🐳 JOBSERVICE CIDX COMMAND: {cidxArgs} in {workingDirectory}");
+        
         try
         {
             // CRITICAL: Add correct force flags for Docker/Podman container management commands
@@ -765,10 +767,21 @@ public class JobService : IJobService, IJobStatusCallback
         {
             _logger.LogInformation("Cleaning up cidx container for job {JobId}", job.Id);
             
+            // CRITICAL: Use --force-docker flag for Docker compatibility
+            string cidxArgs = "stop";
+            var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
+            var needsForceDocker = dockerContainerCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+            
+            if (needsForceDocker && !cidxArgs.Contains("--force-docker"))
+            {
+                cidxArgs = $"{cidxArgs} --force-docker";
+                _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: stop -> {FinalCommand}", cidxArgs);
+            }
+            
             var processInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cidx",
-                Arguments = "stop",
+                Arguments = cidxArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
