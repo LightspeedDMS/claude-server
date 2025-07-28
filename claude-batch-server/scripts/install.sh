@@ -1768,7 +1768,7 @@ validate_voyage_api_key() {
     fi
     
     # Check key format (Voyage AI keys typically start with "pa-")
-    if [[ "$key" =~ ^pa-[A-Za-z0-9]{40,}$ ]]; then
+    if [[ "$key" =~ ^pa-[A-Za-z0-9_-]{40,}$ ]]; then
         return 0
     else
         return 1
@@ -1838,7 +1838,7 @@ prompt_voyage_api_key() {
             log "✓ Voyage AI API key configured successfully"
             return 0
         else
-            echo "Invalid API key format. Voyage AI keys should start with 'pa-' followed by 40+ characters."
+            echo "Invalid API key format. Voyage AI keys should start with 'pa-' followed by 40+ characters (letters, numbers, hyphens, underscores)."
             echo "Please try again or press Enter to skip."
         fi
     done
