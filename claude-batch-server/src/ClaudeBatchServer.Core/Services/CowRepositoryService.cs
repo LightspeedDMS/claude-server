@@ -474,6 +474,7 @@ public class CowRepositoryService : IRepositoryService
             if (status == "cidx_indexing" || status == "cidx_failed")
             {
                 settings["CidxAware"] = true;
+                _logger.LogInformation("Setting CidxAware=true for repository {Name} with status {Status}", repositoryName, status);
             }
             // If completing and CidxAware was already set, preserve it
             else if (status == "completed" && settings.ContainsKey("CidxAware"))
@@ -483,6 +484,8 @@ public class CowRepositoryService : IRepositoryService
             }
             
             await File.WriteAllTextAsync(settingsPath, JsonSerializer.Serialize(settings, AppJsonSerializerContext.Default.DictionaryStringObject));
+            _logger.LogInformation("Updated repository {Name} status to {Status}, CidxAware: {CidxAware}", 
+                repositoryName, status, settings.ContainsKey("CidxAware") ? settings["CidxAware"] : "not set");
         }
         catch (Exception ex)
         {
