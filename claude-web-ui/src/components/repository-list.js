@@ -610,13 +610,34 @@ export class RepositoryListComponent {
 
   startPolling() {
     // Poll for status updates every 5 seconds for repositories that are cloning or indexing
-    this.pollingInterval = setInterval(() => {
+    this.pollingInterval = setInterval(async () => {
+      // Check if we have any repositories that might need status updates
+      // Use cached data first for efficiency, but always do one final poll after completion
       const hasActiveProcessing = this.repositories.some(r => {
         const status = this.getRepositoryStatus(r)
         return status === 'cloning' || status === 'indexing'
       })
+      
       if (hasActiveProcessing) {
-        this.loadRepositories()
+        // Load fresh data and check if status changed from active to completed
+        const oldRepositories = [...this.repositories]
+        await this.loadRepositories()
+        
+        // If any repository changed from active to completed, ensure UI is updated
+        const statusChanged = oldRepositories.some((oldRepo, index) => {
+          const newRepo = this.repositories[index]
+          if (!newRepo) return false
+          
+          const oldStatus = this.getRepositoryStatus(oldRepo)
+          const newStatus = this.getRepositoryStatus(newRepo)
+          
+          return (oldStatus === 'cloning' || oldStatus === 'indexing') && 
+                 (newStatus === 'ready' || newStatus === 'failed')
+        })
+        
+        if (statusChanged) {
+          console.log('Repository status changed from active to completed - UI updated')
+        }
       }
     }, 5000)
   }
