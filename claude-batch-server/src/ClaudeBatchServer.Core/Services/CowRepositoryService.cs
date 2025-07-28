@@ -167,28 +167,66 @@ public class CowRepositoryService : IRepositoryService
                 try
                 {
                     var settingsJson = await File.ReadAllTextAsync(settingsToUse);
+                    _logger.LogDebug("SETTINGS DEBUG: Reading settings for {Repository} from {Path}: {Json}", name, settingsToUse, settingsJson);
+                    
                     var settings = JsonSerializer.Deserialize(settingsJson, AppJsonSerializerContext.Default.DictionaryStringObject);
                     
                     if (settings != null)
                     {
+                        _logger.LogDebug("SETTINGS DEBUG: Parsed settings for {Repository}: {Keys}", name, string.Join(", ", settings.Keys));
+                        
                         if (settings.TryGetValue("Description", out var desc) && desc != null)
+                        {
                             repository.Description = desc.ToString() ?? string.Empty;
+                            _logger.LogDebug("SETTINGS DEBUG: Set Description for {Repository}: {Description}", name, repository.Description);
+                        }
                         if (settings.TryGetValue("GitUrl", out var gitUrl) && gitUrl != null)
+                        {
                             repository.GitUrl = gitUrl.ToString() ?? string.Empty;
+                            _logger.LogDebug("SETTINGS DEBUG: Set GitUrl for {Repository}: {GitUrl}", name, repository.GitUrl);
+                        }
                         if (settings.TryGetValue("RegisteredAt", out var regAt) && regAt != null && DateTime.TryParse(regAt.ToString(), out var registeredAt))
+                        {
                             repository.RegisteredAt = registeredAt;
+                            _logger.LogDebug("SETTINGS DEBUG: Set RegisteredAt for {Repository}: {RegisteredAt}", name, repository.RegisteredAt);
+                        }
                         if (settings.TryGetValue("CloneStatus", out var cloneStatus) && cloneStatus != null)
+                        {
                             repository.CloneStatus = cloneStatus.ToString() ?? string.Empty;
+                            _logger.LogDebug("SETTINGS DEBUG: Set CloneStatus for {Repository}: {CloneStatus}", name, repository.CloneStatus);
+                        }
                         if (settings.TryGetValue("CidxAware", out var cidxAware) && cidxAware != null)
                         {
+                            _logger.LogDebug("SETTINGS DEBUG: CidxAware for {Repository} - Type: {Type}, Value: {Value}", name, cidxAware.GetType().Name, cidxAware);
+                            
                             // Handle JsonElement boolean values from deserialized JSON
                             if (cidxAware is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.True)
+                            {
                                 repository.CidxAware = true;
+                                _logger.LogDebug("SETTINGS DEBUG: Set CidxAware=true (JsonElement) for {Repository}", name);
+                            }
                             else if (cidxAware is System.Text.Json.JsonElement jsonElement2 && jsonElement2.ValueKind == System.Text.Json.JsonValueKind.False)
+                            {
                                 repository.CidxAware = false;
+                                _logger.LogDebug("SETTINGS DEBUG: Set CidxAware=false (JsonElement) for {Repository}", name);
+                            }
                             else if (bool.TryParse(cidxAware.ToString(), out var cidxAwareBool))
+                            {
                                 repository.CidxAware = cidxAwareBool;
+                                _logger.LogDebug("SETTINGS DEBUG: Set CidxAware={CidxAware} (parsed) for {Repository}", cidxAwareBool, name);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("SETTINGS DEBUG: Failed to parse CidxAware for {Repository}: {Value} ({Type})", name, cidxAware, cidxAware.GetType().Name);
+                            }
                         }
+                        
+                        _logger.LogDebug("SETTINGS DEBUG: Final repository data for {Repository}: GitUrl={GitUrl}, CidxAware={CidxAware}, RegisteredAt={RegisteredAt}", 
+                            name, repository.GitUrl, repository.CidxAware, repository.RegisteredAt);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("SETTINGS DEBUG: Failed to deserialize settings for {Repository}", name);
                     }
                 }
                 catch (Exception ex)
@@ -584,10 +622,32 @@ public class CowRepositoryService : IRepositoryService
 
     private async Task<(int ExitCode, string Output)> ExecuteCidxCommand(string cidxArgs, string workingDirectory)
     {
+        // CRITICAL: Add correct force flags for Docker/Podman container management commands
+        var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
+        var forceOnlyCommands = new[] { "init", "fix-config" };
+        
+        var needsForceDocker = dockerContainerCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+        var needsForce = forceOnlyCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+        
+        string finalArgs = cidxArgs;
+        
+        if (needsForceDocker && !cidxArgs.Contains("--force-docker")) 
+        {
+            finalArgs = $"{cidxArgs} --force-docker";
+            _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
+                cidxArgs, finalArgs);
+        }
+        else if (needsForce && !cidxArgs.Contains("--force"))
+        {
+            finalArgs = $"{cidxArgs} --force";
+            _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
+                cidxArgs, finalArgs);
+        }
+
         var processInfo = new ProcessStartInfo
         {
             FileName = "cidx",
-            Arguments = cidxArgs,
+            Arguments = finalArgs,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -600,7 +660,7 @@ public class CowRepositoryService : IRepositoryService
         if (!string.IsNullOrEmpty(voyageApiKey))
         {
             processInfo.EnvironmentVariables["VOYAGE_API_KEY"] = voyageApiKey;
-            _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", cidxArgs);
+            _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", finalArgs);
         }
         else
         {

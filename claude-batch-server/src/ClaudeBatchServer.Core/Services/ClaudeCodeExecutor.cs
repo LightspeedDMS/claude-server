@@ -592,10 +592,32 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
     private async Task<(int ExitCode, string Output)> ExecuteCidxCommandAsync(string cidxArgs, string workingDirectory, UserInfo userInfo, CancellationToken cancellationToken)
     {
+        // CRITICAL: Add correct force flags for Docker/Podman container management commands
+        // This ensures proper container cleanup and management when running in containerized environments
+        var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
+        var forceOnlyCommands = new[] { "init", "fix-config" };
+        
+        var needsForceDocker = dockerContainerCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+        var needsForce = forceOnlyCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+        
+        string finalArgs = cidxArgs;
+        
+        if (needsForceDocker && !cidxArgs.Contains("--force-docker")) 
+        {
+            finalArgs = $"{cidxArgs} --force-docker";
+        }
+        else if (needsForce && !cidxArgs.Contains("--force"))
+        {
+            finalArgs = $"{cidxArgs} --force";
+        }
+            
+        _logger.LogDebug("Executing cidx command: cidx {Args} (original: {OriginalArgs}, needs force-docker: {NeedsForceDocker})", 
+            finalArgs, cidxArgs, needsForceDocker);
+
         var processInfo = new ProcessStartInfo
         {
             FileName = "cidx",
-            Arguments = cidxArgs,
+            Arguments = finalArgs,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

@@ -65,13 +65,13 @@ export class AuthService {
 
       const data = await response.json()
       
-      if (!data.Token) {
+      if (!data.token) {
         throw new Error('No authentication token received')
       }
 
       // Store token and extract user info
-      this.setToken(data.Token)
-      this.user = this.extractUserFromToken(data.Token)
+      this.setToken(data.token)
+      this.user = this.extractUserFromToken(data.token)
       
       return {
         success: true,

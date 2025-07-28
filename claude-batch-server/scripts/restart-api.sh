@@ -70,17 +70,17 @@ else
     fi
     
     # Start API
-    export ASPNETCORE_URLS="http://localhost:5185"
+    export ASPNETCORE_URLS="http://localhost:5000"
     export ASPNETCORE_ENVIRONMENT="Development"
     
-    echo -e "${BLUE}🚀 Starting Claude Batch Server API on port 5185...${NC}"
+    echo -e "${BLUE}🚀 Starting Claude Batch Server API on port 5000...${NC}"
     $DOTNET_CMD run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj &
     
     # Wait a moment for startup
     sleep 3
     
     # Check if it's running
-    if curl -s -f "http://localhost:5185/swagger/v1/swagger.json" >/dev/null 2>&1; then
+    if curl -s -f "http://localhost:5000/swagger/v1/swagger.json" >/dev/null 2>&1; then
         echo -e "${GREEN}✅ API started successfully${NC}"
     else
         echo -e "${YELLOW}⚠️  API may still be starting up...${NC}"
@@ -91,6 +91,6 @@ echo ""
 echo -e "${GREEN}🎉 Claude Server API restart complete!${NC}"
 echo ""
 echo -e "${CYAN}📡 Service URLs:${NC}"
-echo -e "   API: ${YELLOW}http://localhost:5185${NC}"
-echo -e "   Swagger: ${BLUE}http://localhost:5185/swagger${NC}"
+echo -e "   API: ${YELLOW}http://localhost:5000${NC}"
+echo -e "   Swagger: ${BLUE}http://localhost:5000/swagger${NC}"
 echo -e "   Web UI: ${BLUE}http://localhost:5173${NC}"

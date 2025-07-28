@@ -693,10 +693,25 @@ public class JobService : IJobService, IJobStatusCallback
     {
         try
         {
+            // CRITICAL: Add correct force flags for Docker/Podman container management commands
+            var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
+            // Note: index command doesn't support any force flags
+            
+            var needsForceDocker = dockerContainerCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+            
+            string finalArgs = cidxArgs;
+            
+            if (needsForceDocker && !cidxArgs.Contains("--force-docker")) 
+            {
+                finalArgs = $"{cidxArgs} --force-docker";
+                _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: {OriginalCommand} -> {FinalCommand}", 
+                    cidxArgs, finalArgs);
+            }
+
             var processInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cidx",
-                Arguments = cidxArgs,
+                Arguments = finalArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -709,7 +724,7 @@ public class JobService : IJobService, IJobStatusCallback
             if (!string.IsNullOrEmpty(voyageApiKey))
             {
                 processInfo.EnvironmentVariables["VOYAGE_API_KEY"] = voyageApiKey;
-                _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", cidxArgs);
+                _logger.LogDebug("Set VOYAGE_API_KEY environment variable for cidx command: {Command}", finalArgs);
             }
             else
             {

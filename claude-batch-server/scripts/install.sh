@@ -2117,10 +2117,19 @@ build_web_ui() {
         build_needed=true
         log "Build needed - dist directory missing"
     else
-        # Check if source files are newer than dist
-        if [[ "src" -nt "dist" || "index.html" -nt "dist" || "package.json" -nt "dist" ]]; then
+        # Check if ANY source files are newer than dist build
+        # Use find to check all files in src/, plus key config files
+        local newer_files
+        newer_files=$(find src -type f -newer "dist/index.html" 2>/dev/null)
+        if [[ -n "$newer_files" ]] || [[ "index.html" -nt "dist/index.html" ]] || [[ "package.json" -nt "dist/index.html" ]] || [[ "vite.config.js" -nt "dist/index.html" ]] || [[ "package-lock.json" -nt "dist/index.html" ]]; then
             build_needed=true
-            log "Build needed - source files newer than dist"
+            if [[ -n "$newer_files" ]]; then
+                log "Build needed - source files newer than dist:"
+                echo "$newer_files" | head -5 | while read -r file; do log "  - $file"; done
+                [[ $(echo "$newer_files" | wc -l) -gt 5 ]] && log "  ... and $(( $(echo "$newer_files" | wc -l) - 5 )) more files"
+            else
+                log "Build needed - config files newer than dist"
+            fi
         else
             log "Web UI build already up to date"
         fi
