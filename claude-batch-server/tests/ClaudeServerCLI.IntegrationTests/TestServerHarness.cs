@@ -30,6 +30,7 @@ public class TestServerHarness : IAsyncLifetime
     public string TestWorkspaceRoot => _testWorkspaceRoot;
     public string TestUser => "testuser";
     public string TestPassword => "TestPass123!";
+    public string TestPasswordHash => "$5$testsalt$GFbozh8usqmWm9UnDbf75M6L8M96mgoyVbDr+lXlUxE";
 
     public TestServerHarness()
     {
@@ -40,6 +41,8 @@ public class TestServerHarness : IAsyncLifetime
         // Create test workspace in temp directory
         _testWorkspaceRoot = Path.Combine(Path.GetTempPath(), $"cli-e2e-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_testWorkspaceRoot);
+        Directory.CreateDirectory(Path.Combine(_testWorkspaceRoot, "repos"));
+        Directory.CreateDirectory(Path.Combine(_testWorkspaceRoot, "jobs"));
         
         // Create test authentication files
         _testConfigPath = Path.Combine(_testWorkspaceRoot, "test-appsettings.json");
@@ -56,6 +59,21 @@ public class TestServerHarness : IAsyncLifetime
         
         try
         {
+            // Set environment variable for project root before anything else
+            string currentDir;
+            try
+            {
+                currentDir = Directory.GetCurrentDirectory();
+            }
+            catch
+            {
+                // If we can't get current directory, use temp path
+                currentDir = Path.GetTempPath();
+            }
+            var projectRoot = FindProjectRootForSetup(currentDir);
+            Environment.SetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT", projectRoot);
+            Log($"Set CLAUDE_TEST_PROJECT_ROOT to: {projectRoot}");
+            
             // Create test authentication files
             await CreateTestAuthenticationFiles();
             
@@ -100,6 +118,28 @@ public class TestServerHarness : IAsyncLifetime
                     Log($"Warning: Failed to cleanup test workspace: {ex.Message}");
                 }
             }
+            
+            // Clear the environment variable
+            Environment.SetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT", null);
+            Log("Cleared CLAUDE_TEST_PROJECT_ROOT environment variable");
+            
+            // Clean up test config from API directory
+            try
+            {
+                var currentDir = Directory.GetCurrentDirectory();
+                var projectRoot = FindProjectRoot(currentDir);
+                var apiProjectPath = Path.Combine(projectRoot, "src", "ClaudeBatchServer.Api");
+                var testConfigInApiDir = Path.Combine(apiProjectPath, "appsettings.Testing.json");
+                if (File.Exists(testConfigInApiDir))
+                {
+                    File.Delete(testConfigInApiDir);
+                    Log($"Deleted test config: {testConfigInApiDir}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Warning: Failed to cleanup test config: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
@@ -113,17 +153,22 @@ public class TestServerHarness : IAsyncLifetime
     {
         Log("Creating test authentication files...");
         
-        // Create test passwd file (username:bcrypt_hash format)
-        // Hash for "TestPass123!" using bcrypt
-        var passwdContent = $"{TestUser}:$2a$11$8K1p/a0dCZCQiIfLmU.pHOuK5K5T2n8n2n8n2n8n2n8n2n8n2n8n2\n";
+        // Create test passwd file (standard unix format)
+        var passwdContent = $"{TestUser}:x:1000:1000:Test User:/home/{TestUser}:/bin/bash\n";
         await File.WriteAllTextAsync(_testPasswdPath, passwdContent);
         
-        // Create test shadow file (username:salt:hash format for shadow file auth)
-        var shadowContent = $"{TestUser}:testsalt:testhash\n";
+        // Create test shadow file with proper format
+        // For testing, we'll use a known SHA-256 hash
+        // Password: TestPass123!
+        // Salt: testsalt
+        // The server uses simple SHA256(password+salt) then base64 encoding
+        var shadowContent = $"{TestUser}:$5$testsalt$GFbozh8usqmWm9UnDbf75M6L8M96mgoyVbDr+lXlUxE:19000:0:99999:7:::\n";
         await File.WriteAllTextAsync(_testShadowPath, shadowContent);
         
         Log($"Created test passwd file: {_testPasswdPath}");
+        Log($"Passwd content: {passwdContent.Trim()}");
         Log($"Created test shadow file: {_testShadowPath}");
+        Log($"Shadow content: {shadowContent.Trim()}");
     }
 
     private async Task CreateTestConfiguration()
@@ -165,11 +210,13 @@ public class TestServerHarness : IAsyncLifetime
             Workspace = new
             {
                 BasePath = _testWorkspaceRoot,
+                JobsPath = Path.Combine(_testWorkspaceRoot, "jobs"),
+                ReposPath = Path.Combine(_testWorkspaceRoot, "repos"),
                 MaxJobs = 10,
                 JobTimeoutMinutes = 30,
                 CleanupIntervalMinutes = 60
             },
-            Authentication = new
+            Auth = new
             {
                 PasswdFilePath = _testPasswdPath,
                 ShadowFilePath = _testShadowPath,
@@ -193,6 +240,7 @@ public class TestServerHarness : IAsyncLifetime
         
         await File.WriteAllTextAsync(_testConfigPath, json);
         Log($"Created test configuration: {_testConfigPath}");
+        Log($"Config content preview: {json.Substring(0, Math.Min(500, json.Length))}...");
     }
 
     private async Task StartServerAsync()
@@ -212,7 +260,7 @@ public class TestServerHarness : IAsyncLifetime
         
         var startInfo = new ProcessStartInfo
         {
-            FileName = "/home/jsbattig/.dotnet/dotnet",
+            FileName = "dotnet",
             Arguments = $"\"{apiDllPath}\"",
             WorkingDirectory = apiProjectPath,
             UseShellExecute = false,
@@ -226,8 +274,19 @@ public class TestServerHarness : IAsyncLifetime
         startInfo.EnvironmentVariables["ASPNETCORE_URLS"] = _serverUrl;
         startInfo.EnvironmentVariables["DOTNET_ENVIRONMENT"] = "Testing";
         
-        // Override config file path
-        startInfo.Arguments += $" --configuration \"{_testConfigPath}\"";
+        // Copy config to API project directory as appsettings.Testing.json
+        var testConfigInApiDir = Path.Combine(apiProjectPath, "appsettings.Testing.json");
+        File.Copy(_testConfigPath, testConfigInApiDir, overwrite: true);
+        Log($"Copied test config to: {testConfigInApiDir}");
+        
+        // Also set via environment variables for redundancy
+        startInfo.EnvironmentVariables["Auth__PasswdFilePath"] = _testPasswdPath;
+        startInfo.EnvironmentVariables["Auth__ShadowFilePath"] = _testShadowPath;
+        
+        // Override workspace paths to use test directories
+        startInfo.EnvironmentVariables["Workspace__JobsPath"] = Path.Combine(_testWorkspaceRoot, "jobs");
+        startInfo.EnvironmentVariables["Workspace__ReposPath"] = Path.Combine(_testWorkspaceRoot, "repos");
+        startInfo.EnvironmentVariables["Workspace__BasePath"] = _testWorkspaceRoot;
         
         _serverProcess = new Process { StartInfo = startInfo };
         
@@ -338,17 +397,55 @@ public class TestServerHarness : IAsyncLifetime
 
     private string FindProjectRoot(string currentDir)
     {
+        // First check environment variable
+        var envProjectRoot = Environment.GetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT");
+        if (!string.IsNullOrEmpty(envProjectRoot) && Directory.Exists(envProjectRoot))
+        {
+            Console.WriteLine($"[DEBUG] Using project root from environment variable: {envProjectRoot}");
+            return envProjectRoot;
+        }
+        
+        // If not in environment, use the setup method
+        return FindProjectRootForSetup(currentDir);
+    }
+    
+    private string FindProjectRootForSetup(string currentDir)
+    {
+        // Try from current directory
         var dir = new DirectoryInfo(currentDir);
+        Console.WriteLine($"[DEBUG] Starting directory: {dir.FullName}");
+        
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "ClaudeBatchServer.sln")))
         {
+            Console.WriteLine($"[DEBUG] Checking directory: {dir.FullName}");
             dir = dir.Parent;
+        }
+        
+        // If not found, try from assembly location
+        if (dir == null)
+        {
+            Console.WriteLine($"[DEBUG] Trying from assembly location");
+            var assemblyLocation = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+            if (assemblyDir != null)
+            {
+                dir = new DirectoryInfo(assemblyDir);
+            }
+            
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "ClaudeBatchServer.sln")))
+            {
+                Console.WriteLine($"[DEBUG] Checking directory: {dir.FullName}");
+                dir = dir.Parent;
+            }
         }
         
         if (dir == null)
         {
-            throw new InvalidOperationException("Could not find project root directory");
+            Console.WriteLine($"[DEBUG] Could not find ClaudeBatchServer.sln starting from {currentDir} or assembly location");
+            throw new InvalidOperationException($"Could not find project root directory starting from {currentDir}");
         }
         
+        Console.WriteLine($"[DEBUG] Found project root: {dir.FullName}");
         return dir.FullName;
     }
 

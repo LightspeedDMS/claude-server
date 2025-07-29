@@ -7,7 +7,7 @@ using ClaudeServerCLI.Services;
 namespace ClaudeServerCLI.IntegrationTests;
 
 [Collection("TestServer")]
-public class CliIntegrationTests : IClassFixture<TestServerHarness>, IDisposable
+public class CliIntegrationTests : IDisposable
 {
     private readonly TestServerHarness _serverHarness;
     private readonly CLITestHelper _cliHelper;

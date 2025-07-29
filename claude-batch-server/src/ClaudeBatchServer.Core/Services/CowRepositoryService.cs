@@ -1239,6 +1239,163 @@ public class CowRepositoryService : IRepositoryService
 
         return (process.ExitCode, output, error);
     }
+
+    public async Task<List<FileInfoResponse>> GetRepositoryFilesAsync(string repoName, string? path = null)
+    {
+        try
+        {
+            var repository = await GetRepositoryAsync(repoName);
+            if (repository == null)
+            {
+                throw new InvalidOperationException($"Repository '{repoName}' not found");
+            }
+
+            var fullPath = string.IsNullOrEmpty(path) ? repository.Path : Path.Combine(repository.Path, path);
+            
+            if (!Directory.Exists(fullPath))
+            {
+                throw new InvalidOperationException($"Path '{path}' not found in repository '{repoName}'");
+            }
+
+            var files = new List<FileInfoResponse>();
+            var directoryInfo = new DirectoryInfo(fullPath);
+
+            // Add directories
+            foreach (var dir in directoryInfo.GetDirectories())
+            {
+                // Skip .git directory
+                if (dir.Name == ".git") continue;
+
+                var relativePath = string.IsNullOrEmpty(path) ? dir.Name : Path.Combine(path, dir.Name);
+                files.Add(new FileInfoResponse
+                {
+                    Name = dir.Name,
+                    Type = "directory",
+                    Path = relativePath,
+                    Size = 0,
+                    Modified = dir.LastWriteTime,
+                    IsDirectory = true
+                });
+            }
+
+            // Add files
+            foreach (var file in directoryInfo.GetFiles())
+            {
+                var relativePath = string.IsNullOrEmpty(path) ? file.Name : Path.Combine(path, file.Name);
+                files.Add(new FileInfoResponse
+                {
+                    Name = file.Name,
+                    Type = "file",
+                    Path = relativePath,
+                    Size = file.Length,
+                    Modified = file.LastWriteTime,
+                    IsDirectory = false
+                });
+            }
+
+            return files.OrderBy(f => f.IsDirectory ? 0 : 1).ThenBy(f => f.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting repository files for {RepoName} at path {Path}", repoName, path);
+            throw;
+        }
+    }
+
+    public async Task<FileContentResponse> GetRepositoryFileContentAsync(string repoName, string filePath)
+    {
+        try
+        {
+            var repository = await GetRepositoryAsync(repoName);
+            if (repository == null)
+            {
+                throw new InvalidOperationException($"Repository '{repoName}' not found");
+            }
+
+            var fullPath = Path.Combine(repository.Path, filePath);
+            
+            if (!File.Exists(fullPath))
+            {
+                throw new InvalidOperationException($"File '{filePath}' not found in repository '{repoName}'");
+            }
+
+            var fileInfo = new System.IO.FileInfo(fullPath);
+            
+            // Check if it's a directory
+            if (Directory.Exists(fullPath))
+            {
+                throw new InvalidOperationException($"Path '{filePath}' is a directory, not a file");
+            }
+
+            // Read file content
+            var content = await File.ReadAllTextAsync(fullPath);
+            var mimeType = GetMimeType(fileInfo.Extension);
+
+            return new FileContentResponse
+            {
+                FileName = fileInfo.Name,
+                Content = content,
+                Encoding = "utf8",
+                Size = fileInfo.Length,
+                MimeType = mimeType
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting repository file content for {RepoName}/{FilePath}", repoName, filePath);
+            throw;
+        }
+    }
+
+    private static string? GetMimeType(string extension)
+    {
+        return extension.ToLowerInvariant() switch
+        {
+            ".txt" => "text/plain",
+            ".md" => "text/markdown",
+            ".cs" => "text/x-csharp",
+            ".js" => "text/javascript",
+            ".ts" => "text/typescript",
+            ".json" => "application/json",
+            ".xml" => "application/xml",
+            ".html" => "text/html",
+            ".css" => "text/css",
+            ".py" => "text/x-python",
+            ".java" => "text/x-java",
+            ".cpp" => "text/x-c++src",
+            ".h" => "text/x-chdr",
+            ".yml" or ".yaml" => "text/yaml",
+            ".sh" => "text/x-shellscript",
+            ".bat" => "text/x-msdos-batch",
+            ".ps1" => "text/x-powershell",
+            ".sql" => "text/x-sql",
+            ".php" => "text/x-php",
+            ".rb" => "text/x-ruby",
+            ".go" => "text/x-go",
+            ".rs" => "text/x-rust",
+            ".swift" => "text/x-swift",
+            ".kt" => "text/x-kotlin",
+            ".scala" => "text/x-scala",
+            ".dockerfile" => "text/x-dockerfile",
+            ".gitignore" => "text/plain",
+            ".gitattributes" => "text/plain",
+            ".editorconfig" => "text/plain",
+            ".config" => "application/xml",
+            ".props" => "application/xml",
+            ".targets" => "application/xml",
+            ".csproj" => "application/xml",
+            ".sln" => "text/plain",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".svg" => "image/svg+xml",
+            ".pdf" => "application/pdf",
+            ".zip" => "application/zip",
+            ".tar" => "application/x-tar",
+            ".gz" => "application/gzip",
+            _ => "text/plain"
+        };
+    }
 }
 
 public enum CowMethod

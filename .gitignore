@@ -84,3 +84,7 @@ claude-batch-server/claude-server-passwd
 claude-batch-server/claude-server-passwd.backup.20250723_225749
 claude-batch-server/claude-server-shadow
 claude-batch-server/claude-server-shadow.backup.20250723_225749
+*.pdb
+claude-batch-server/src/ClaudeServerCLI/publish-shared/claude-server
+claude-batch-server/src/ClaudeServerCLI/publish-shared/SystemPrompts/cidx-system-prompt-template.txt
+claude-batch-server/src/ClaudeServerCLI/publish-shared/SystemPrompts/cidx-unavailable-system-prompt-template.txt

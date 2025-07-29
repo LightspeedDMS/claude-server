@@ -65,12 +65,16 @@ public class FileInfoResponse
     public string Path { get; set; } = string.Empty;
     public long Size { get; set; }
     public DateTime Modified { get; set; }
+    public bool IsDirectory { get; set; }
 }
 
 public class FileContentResponse
 {
+    public string FileName { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string Encoding { get; set; } = "utf8";
+    public long Size { get; set; }
+    public string? MimeType { get; set; }
 }
 
 public class DirectoryInfoResponse

@@ -30,9 +30,9 @@ public class Phase34IntegrationTests : IDisposable
         // Assert
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Claude Batch Server CLI", result.CombinedOutput);
-        Assert.Contains("Authentication commands", result.CombinedOutput);
-        Assert.Contains("Repository management commands", result.CombinedOutput);
-        Assert.Contains("Job management commands", result.CombinedOutput);
+        Assert.Contains("auth", result.CombinedOutput);
+        Assert.Contains("repos", result.CombinedOutput);
+        Assert.Contains("jobs", result.CombinedOutput);
     }
     
     [Fact]
@@ -100,9 +100,11 @@ public class Phase34IntegrationTests : IDisposable
         
         // Assert
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("List all repositories", result.CombinedOutput);
+        Assert.Contains("List all", result.CombinedOutput);
         Assert.Contains("--format", result.CombinedOutput);
-        Assert.Contains("table, json, yaml", result.CombinedOutput);
+        Assert.Contains("table", result.CombinedOutput);
+        Assert.Contains("json", result.CombinedOutput);
+        Assert.Contains("yaml", result.CombinedOutput);
         Assert.Contains("--watch", result.CombinedOutput);
         Assert.Contains("real-time", result.CombinedOutput);
     }

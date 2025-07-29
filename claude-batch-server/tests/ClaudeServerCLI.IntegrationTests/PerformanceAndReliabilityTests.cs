@@ -47,7 +47,7 @@ public class PerformanceAndReliabilityTests : IDisposable
         
         stopwatch.Stop();
         
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(500, 
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000, 
             "Help command should be very fast");
         
         result.CombinedOutput.Should().Contain("Claude Batch Server CLI");

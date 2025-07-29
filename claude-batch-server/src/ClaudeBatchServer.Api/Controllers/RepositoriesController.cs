@@ -153,6 +153,76 @@ public class RepositoriesController : ControllerBase
         }
     }
 
+    [HttpGet("{repoName}/files")]
+    public async Task<ActionResult<List<FileInfoResponse>>> GetRepositoryFiles(string repoName, [FromQuery] string? path = null)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            _logger.LogInformation("GetRepositoryFiles called for {RepoName} path {Path} by user {Username}", repoName, path ?? "root", username);
+
+            if (string.IsNullOrWhiteSpace(repoName))
+                return BadRequest("Repository name is required");
+
+            var files = await _repositoryService.GetRepositoryFilesAsync(repoName, path);
+            return Ok(files);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid request for repository files: {RepoName}", repoName);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Repository not found: {RepoName}", repoName);
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting repository files {RepoName}", repoName);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    [HttpGet("{repoName}/files/content")]
+    public async Task<ActionResult<FileContentResponse>> GetRepositoryFileContent(string repoName, [FromQuery] string filePath)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            _logger.LogInformation("GetRepositoryFileContent called for {RepoName} file {FilePath} by user {Username}", repoName, filePath, username);
+
+            if (string.IsNullOrWhiteSpace(repoName))
+                return BadRequest("Repository name is required");
+            if (string.IsNullOrWhiteSpace(filePath))
+                return BadRequest("File path is required");
+
+            var fileContent = await _repositoryService.GetRepositoryFileContentAsync(repoName, filePath);
+            return Ok(fileContent);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid request for repository file content: {RepoName}/{FilePath}", repoName, filePath);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Repository or file not found: {RepoName}/{FilePath}", repoName, filePath);
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting repository file content {RepoName}/{FilePath}", repoName, filePath);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     private string? GetCurrentUsername()
     {
         // FIXED: Robust username extraction from JWT claims

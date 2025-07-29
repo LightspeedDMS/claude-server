@@ -211,7 +211,7 @@ public class UserManagementIntegrationTests : IDisposable
         Assert.Equal(1, exitCode);
         
         var output = console.OutText;
-        Assert.Contains("does not exist", output);
+        Assert.Contains("Password file not found", output);
     }
 
     [Fact]

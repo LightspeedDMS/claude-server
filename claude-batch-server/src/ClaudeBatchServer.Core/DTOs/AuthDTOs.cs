@@ -13,6 +13,10 @@ public class LoginResponse
     public DateTime Expires { get; set; }
 }
 
+public class LogoutRequest
+{
+}
+
 public class LogoutResponse
 {
     public bool Success { get; set; } = true;

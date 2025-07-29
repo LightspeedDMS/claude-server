@@ -18,4 +18,8 @@ public interface IRepositoryService
     Task<byte[]?> DownloadFileAsync(string cowPath, string filePath);
     Task<string?> GetFileContentAsync(string cowPath, string filePath);
     Task<bool> ValidateCowSupportAsync();
+    
+    // Repository file management
+    Task<List<FileInfoResponse>> GetRepositoryFilesAsync(string repoName, string? path = null);
+    Task<FileContentResponse> GetRepositoryFileContentAsync(string repoName, string filePath);
 }

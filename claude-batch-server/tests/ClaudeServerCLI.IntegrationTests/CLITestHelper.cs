@@ -15,15 +15,16 @@ public class CLITestHelper
     private readonly TestServerHarness _serverHarness;
     private readonly string _cliPath;
     private readonly int _defaultTimeoutMs;
+    private readonly string? _persistentConfigPath;
 
-    public CLITestHelper(TestServerHarness serverHarness, int defaultTimeoutMs = 30000)
+    public CLITestHelper(TestServerHarness serverHarness, int defaultTimeoutMs = 30000, string? persistentConfigPath = null)
     {
         _serverHarness = serverHarness;
         _defaultTimeoutMs = defaultTimeoutMs;
+        _persistentConfigPath = persistentConfigPath;
         
         // Find the CLI executable path
-        var currentDir = Directory.GetCurrentDirectory();
-        var projectRoot = FindProjectRoot(currentDir);
+        var projectRoot = FindProjectRoot();
         _cliPath = Path.Combine(projectRoot, "src", "ClaudeServerCLI", "bin", "Debug", "net8.0", "claude-server.dll");
         
         if (!File.Exists(_cliPath))
@@ -41,8 +42,9 @@ public class CLITestHelper
         
         var startInfo = new ProcessStartInfo
         {
-            FileName = "/home/jsbattig/.dotnet/dotnet",
+            FileName = "dotnet",
             Arguments = $"\"{_cliPath}\" --server-url {_serverHarness.ServerUrl} {arguments}",
+            WorkingDirectory = Path.GetTempPath(),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -52,6 +54,23 @@ public class CLITestHelper
         // Set environment variables for test
         startInfo.EnvironmentVariables["DOTNET_ENVIRONMENT"] = "Testing";
         startInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Testing";
+        startInfo.EnvironmentVariables["CLAUDE_SERVER_SKIP_SSL_VALIDATION"] = "true";
+        
+        // Use persistent config path if provided, otherwise create isolated path
+        string testConfigPath;
+        if (_persistentConfigPath != null)
+        {
+            testConfigPath = _persistentConfigPath;
+        }
+        else
+        {
+            // Isolate config to prevent profile pollution between tests
+            testConfigPath = Path.Combine(Path.GetTempPath(), $"cli-test-config-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(testConfigPath);
+        }
+        
+        startInfo.EnvironmentVariables["HOME"] = testConfigPath;
+        startInfo.EnvironmentVariables["USERPROFILE"] = testConfigPath;
 
         using var process = new Process();
         process.StartInfo = startInfo;
@@ -258,20 +277,53 @@ public class CLITestHelper
         }
     }
 
-    private string FindProjectRoot(string currentDir)
+    private string FindProjectRoot()
     {
-        var dir = new DirectoryInfo(currentDir);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "ClaudeBatchServer.sln")))
+        // First check environment variable
+        var envProjectRoot = Environment.GetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT");
+        if (!string.IsNullOrEmpty(envProjectRoot) && Directory.Exists(envProjectRoot))
         {
-            dir = dir.Parent;
+            return envProjectRoot;
         }
         
-        if (dir == null)
+        // If not in environment, try to get current directory for fallback
+        try
         {
-            throw new InvalidOperationException("Could not find project root directory");
+            var currentDir = Directory.GetCurrentDirectory();
+            var dir = new DirectoryInfo(currentDir);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "ClaudeBatchServer.sln")))
+            {
+                dir = dir.Parent;
+            }
+            
+            if (dir != null)
+            {
+                return dir.FullName;
+            }
+        }
+        catch
+        {
+            // If we can't get current directory, try from assembly location
         }
         
-        return dir.FullName;
+        // Try from assembly location as last resort
+        var assemblyLocation = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+        if (assemblyDir != null)
+        {
+            var dir = new DirectoryInfo(assemblyDir);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "ClaudeBatchServer.sln")))
+            {
+                dir = dir.Parent;
+            }
+            
+            if (dir != null)
+            {
+                return dir.FullName;
+            }
+        }
+        
+        throw new InvalidOperationException("Could not find project root directory from environment variable, current directory, or assembly location");
     }
 }
 
