@@ -16,6 +16,81 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Process tracking for proper cleanup
+declare -a CHILD_PIDS=()
+CLEANUP_DONE=false
+
+# Signal handling for proper cleanup
+cleanup() {
+    if [[ "$CLEANUP_DONE" == "true" ]]; then
+        return
+    fi
+    CLEANUP_DONE=true
+    
+    log "Received signal, cleaning up processes..."
+    
+    # Kill all tracked child processes
+    for pid in "${CHILD_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            log "Stopping process $pid..."
+            kill -TERM "$pid" 2>/dev/null || true
+            
+            # Give process time to clean up
+            sleep 2
+            
+            # Force kill if still running
+            if kill -0 "$pid" 2>/dev/null; then
+                warn "Force killing process $pid..."
+                kill -KILL "$pid" 2>/dev/null || true
+            fi
+        fi
+    done
+    
+    # Additional cleanup for dotnet and npm processes
+    log "Stopping any remaining server processes..."
+    pkill -f "ClaudeBatchServer.Api" 2>/dev/null || true
+    pkill -f "dotnet.*ClaudeBatchServer" 2>/dev/null || true
+    pkill -f "vite.*dev" 2>/dev/null || true
+    pkill -f "npm.*run.*dev" 2>/dev/null || true
+    pkill -f "node.*vite" 2>/dev/null || true
+    
+    log "Cleanup completed"
+}
+
+# Set up signal traps
+trap cleanup SIGINT SIGTERM EXIT
+
+# Track child process
+track_pid() {
+    local pid=$1
+    CHILD_PIDS+=("$pid")
+    log "Tracking process $pid"
+}
+
+# Wait for process with signal handling
+wait_with_signals() {
+    local pid=$1
+    local description="$2"
+    
+    log "Waiting for $description (PID: $pid)..."
+    
+    while kill -0 "$pid" 2>/dev/null; do
+        if wait "$pid" 2>/dev/null; then
+            log "$description completed normally"
+            break
+        else
+            local exit_code=$?
+            if [[ $exit_code -eq 130 ]]; then  # SIGINT
+                log "$description interrupted by user"
+                break
+            elif [[ $exit_code -ne 0 ]]; then
+                warn "$description exited with code $exit_code"
+                break
+            fi
+        fi
+    done
+}
+
 # Logging functions
 log() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -96,7 +171,7 @@ show_help() {
     echo "    ./run.sh install --production --ssl-cn server.example.com  # Production with SSL"
     echo ""
     echo -e "${YELLOW}ENVIRONMENT VARIABLES:${NC}"
-    echo -e "    ${GREEN}PORT${NC}            - Server port (default: 5000)"
+    echo -e "    ${GREEN}PORT${NC}            - Server port (default: 5185)"
     echo -e "    ${GREEN}WEB_PORT${NC}        - Web UI port (default: 5173)"
     echo -e "    ${GREEN}ASPNETCORE_ENVIRONMENT${NC} - ASP.NET environment"
     echo ""
@@ -106,6 +181,7 @@ show_help() {
     echo -e "    ${GREEN}appsettings.json${NC} - Server configuration"
     echo ""
     echo -e "${YELLOW}NOTES:${NC}"
+    echo -e "    • Use Ctrl-C to stop running services (proper cleanup guaranteed)"
     echo -e "    • The 'install' command wraps ./claude-batch-server/scripts/install.sh"
     echo -e "    • Installation script handles sudo privileges automatically as needed"
     echo -e "    • Use --dry-run to see what would be installed before making changes"
@@ -163,9 +239,10 @@ install_dependencies() {
 # Start Claude Batch Server
 start_server() {
     local mode="${1:-dev}"
-    local port="${PORT:-5000}"
+    local port="${PORT:-5185}"
     
     log "Starting Claude Batch Server in $mode mode on port $port..."
+    log "Use Ctrl-C to stop the server properly"
     
     cd "$PROJECT_ROOT/claude-batch-server"
     
@@ -182,17 +259,25 @@ start_server() {
             dotnet clean src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj
             dotnet restore src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj
             dotnet build src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --no-restore
-            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --no-build
+            
+            # Start server and track PID
+            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --no-build &
+            track_pid $!
+            wait_with_signals $! "Claude Batch Server"
             ;;
         "prod")
             export ASPNETCORE_ENVIRONMENT=Production
             export ASPNETCORE_URLS="http://0.0.0.0:$port"
-            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --configuration Release
+            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --configuration Release &
+            track_pid $!
+            wait_with_signals $! "Claude Batch Server"
             ;;
         "test")
             export ASPNETCORE_ENVIRONMENT=Testing
             export ASPNETCORE_URLS="http://0.0.0.0:$port"
-            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --configuration Debug
+            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --configuration Debug &
+            track_pid $!
+            wait_with_signals $! "Claude Batch Server"
             ;;
         *)
             error "Unknown server mode: $mode"
@@ -207,19 +292,26 @@ start_web() {
     local port="${WEB_PORT:-5173}"
     
     log "Starting Web UI in $mode mode on port $port..."
+    log "Use Ctrl-C to stop the web UI properly"
     
     cd "$PROJECT_ROOT/claude-web-ui"
     
     case "$mode" in
         "dev")
-            npm run dev -- --port "$port"
+            npm run dev -- --port "$port" &
+            track_pid $!
+            wait_with_signals $! "Web UI"
             ;;
         "prod")
             npm run build
-            npm run preview -- --port "$port"
+            npm run preview -- --port "$port" &
+            track_pid $!
+            wait_with_signals $! "Web UI"
             ;;
         "test")
-            npm run dev -- --port "$port" --mode test
+            npm run dev -- --port "$port" --mode test &
+            track_pid $!
+            wait_with_signals $! "Web UI"
             ;;
         *)
             error "Unknown web mode: $mode"
@@ -233,21 +325,75 @@ start_both() {
     local mode="${1:-dev}"
     
     log "Starting both server and web UI in $mode mode..."
+    log "Use Ctrl-C to stop both services properly"
     
     # Start server in background
     log "Starting server in background..."
-    (start_server "$mode") &
-    SERVER_PID=$!
+    cd "$PROJECT_ROOT/claude-batch-server"
+    
+    # Ensure .NET is in PATH
+    export PATH="$HOME/.dotnet:$PATH"
+    export DOTNET_ROOT="$HOME/.dotnet"
+    
+    case "$mode" in
+        "dev")
+            export ASPNETCORE_ENVIRONMENT=Development
+            export ASPNETCORE_URLS="http://0.0.0.0:${PORT:-5185}"
+            log "Building server..."
+            dotnet clean src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj >/dev/null 2>&1
+            dotnet restore src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj >/dev/null 2>&1
+            dotnet build src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --no-restore >/dev/null 2>&1
+            
+            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --no-build &
+            track_pid $!
+            SERVER_PID=$!
+            ;;
+        "prod")
+            export ASPNETCORE_ENVIRONMENT=Production
+            export ASPNETCORE_URLS="http://0.0.0.0:${PORT:-5185}"
+            dotnet run --project src/ClaudeBatchServer.Api/ClaudeBatchServer.Api.csproj --configuration Release &
+            track_pid $!
+            SERVER_PID=$!
+            ;;
+        *)
+            error "Unknown mode for both: $mode"
+            exit 1
+            ;;
+    esac
     
     # Wait a bit for server to start
-    sleep 3
+    log "Waiting for server to initialize..."
+    sleep 5
     
-    # Start web UI in foreground
-    log "Starting web UI..."
-    start_web "$mode"
+    # Start web UI in background
+    log "Starting web UI in background..."
+    cd "$PROJECT_ROOT/claude-web-ui"
     
-    # Clean up server process on exit
-    trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+    case "$mode" in
+        "dev")
+            npm run dev -- --port "${WEB_PORT:-5173}" &
+            track_pid $!
+            WEB_PID=$!
+            ;;
+        "prod")
+            npm run build >/dev/null 2>&1
+            npm run preview -- --port "${WEB_PORT:-5173}" &
+            track_pid $!
+            WEB_PID=$!
+            ;;
+    esac
+    
+    log "Both services started!"
+    log "Server: http://localhost:${PORT:-5185}"
+    log "Web UI: http://localhost:${WEB_PORT:-5173}"
+    log "Press Ctrl-C to stop both services"
+    
+    # Wait for either process to exit
+    while kill -0 "$SERVER_PID" 2>/dev/null && kill -0 "$WEB_PID" 2>/dev/null; do
+        sleep 1
+    done
+    
+    log "One of the services stopped, initiating cleanup..."
 }
 
 # Run tests
@@ -318,7 +464,9 @@ docker_operations() {
             ;;
         "logs")
             log "Showing Docker logs..."
-            docker compose logs -f
+            docker compose logs -f &
+            track_pid $!
+            wait_with_signals $! "Docker logs"
             ;;
         *)
             error "Unknown Docker operation: $operation"

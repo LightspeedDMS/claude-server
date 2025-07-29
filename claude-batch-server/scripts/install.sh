@@ -909,7 +909,7 @@ configure_firewall() {
             fi
             
             # Add custom ports for the application (idempotent)
-            local ports=("5000/tcp" "8080/tcp" "8443/tcp")
+            local ports=("5185/tcp" "8080/tcp" "8443/tcp")
             for port in "${ports[@]}"; do
                 if ! sudo firewall-cmd --list-ports | grep -q "$port"; then
                     sudo firewall-cmd --permanent --add-port="$port"
@@ -957,7 +957,7 @@ configure_firewall() {
             fi
             
             # Allow custom ports - idempotent
-            local ports=("5000" "8080" "8443")
+            local ports=("5185" "8080" "8443")
             for port in "${ports[@]}"; do
                 if ! sudo ufw status | grep -q "${port}/tcp.*ALLOW"; then
                     sudo ufw allow "${port}/tcp"
@@ -2375,7 +2375,7 @@ server {
     # Frontend /api/* requests - rewrite and proxy to backend
     location /api/ {
         rewrite ^/api(.*)$ \$1 break;
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:5185;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection keep-alive;
@@ -2393,7 +2393,7 @@ server {
     
     # Proxy everything else to ASP.NET Core (serves both static files and API)
     location / {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:5185;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection keep-alive;
@@ -2540,7 +2540,7 @@ ExecStart=$dotnet_path ClaudeBatchServer.Api.dll
 Restart=always
 RestartSec=10
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
+Environment=ASPNETCORE_URLS=http://0.0.0.0:5185
 Environment=DOTNET_ROOT=$dotnet_root
 Environment=PATH=$service_path
 
@@ -2863,25 +2863,25 @@ $(echo -e "$(echo -e "${YELLOW}👥 User Authentication Management:${NC}")")
   $(echo -e "$(echo -e "${BLUE}claude-server user remove myuser${NC}")")
 
 • Login via CLI:
-  $(echo -e "${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")${NC}")
+  $(echo -e "${BLUE}claude-server auth login --server-url http://$primary_ip$([ "$PRODUCTION_MODE" == "true" ] && echo "s"):$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5185")${NC}")
 
 $(echo -e "$(echo -e "${YELLOW}🧪 Testing Your Installation:${NC}")")
 
 • Test API health:
-  ${BLUE}curl -f http://$primary_ip:5000/health${NC}
+  ${BLUE}curl -f http://$primary_ip:5185/health${NC}
 
 • Test authentication (after adding user):
-  ${BLUE}curl -X POST http://$primary_ip:5000/auth/login \\
+  ${BLUE}curl -X POST http://$primary_ip:5185/auth/login \\
     -H 'Content-Type: application/json' \\
     -d '{"username":"myuser","password":"mypassword123"}'${NC}
 
 • Access Swagger UI:
-  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/swagger" || echo "http://$primary_ip:5000/swagger")${NC}
+  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/swagger" || echo "http://$primary_ip:5185/swagger")${NC}
 
 $(echo -e "${YELLOW}🌐 Web UI Access:${NC}")
 
 • Main Web Application:
-  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/" || echo "http://$primary_ip:5000/")${NC}
+  ${BLUE}Open: $([ "$PRODUCTION_MODE" == "true" ] && echo "https://$primary_ip/" || echo "http://$primary_ip:5185/")${NC}
 
 • Features Available:
   - User authentication and login
@@ -2901,7 +2901,7 @@ $(echo -e "${BLUE}Web UI Access URLs:${NC}")
 • External Web UI (HTTPS): ${BLUE}https://$external_ip/${NC}")
 • Web UI (HTTP - redirects to HTTPS): ${BLUE}http://$primary_ip/${NC}
 • API Endpoints: ${BLUE}https://$primary_ip/api/${NC}  
-• Direct API (backend): ${BLUE}http://$primary_ip:5000/${NC}
+• Direct API (backend): ${BLUE}http://$primary_ip:5185/${NC}
 
 $(echo -e "${BLUE}SSL Certificate:${NC}")
 • Certificate: $(echo -e "${BLUE}/etc/ssl/claude-batch-server/server.crt${NC}")
@@ -2913,11 +2913,11 @@ EOF
     case "$OS_ID" in
         "rocky"|"rhel"|"centos")
             echo "• Firewalld: $(sudo systemctl is-active firewalld)"
-            echo "• Open ports: HTTP (80), HTTPS (443), API (5000), Docker (8080, 8443)"
+            echo "• Open ports: HTTP (80), HTTPS (443), API (5185), Docker (8080, 8443)"
             ;;
         "ubuntu")
             echo "• UFW: $(sudo ufw status | head -1)"
-            echo "• Open ports: SSH, HTTP, HTTPS, API (5000), Docker (8080, 8443)"
+            echo "• Open ports: SSH, HTTP, HTTPS, API (5185), Docker (8080, 8443)"
             ;;
     esac
     cat << EOF
@@ -2935,9 +2935,9 @@ else
 $(echo -e "${YELLOW}🔧 Development Mode - Additional Options:${NC}")
 
 $(echo -e "${BLUE}Web UI and API Access URLs:${NC}")
-• Main Web Application: ${BLUE}http://$primary_ip:5000/${NC}
-• API Endpoints: ${BLUE}http://$primary_ip:5000/api/${NC}
-• Swagger UI: ${BLUE}http://$primary_ip:5000/swagger${NC}
+• Main Web Application: ${BLUE}http://$primary_ip:5185/${NC}
+• API Endpoints: ${BLUE}http://$primary_ip:5185/api/${NC}
+• Swagger UI: ${BLUE}http://$primary_ip:5185/swagger${NC}
 • Docker (if used): ${BLUE}http://$primary_ip:8080/${NC}
 • All local IPs: ${BLUE}$(echo "$all_ips" | tr '\n' ' ')${NC}
 
@@ -2957,15 +2957,15 @@ If you prefer Docker development setup:
 $(echo -e "${YELLOW}💡 Development Tips:${NC}")
 • Use local authentication files for testing users
 • API server runs without SSL in development mode
-• Direct port access (5000) bypasses nginx proxy
+• Direct port access (5185) bypasses nginx proxy
 
 EOF
 fi
 
     printf "%b📚 Additional Resources:%b\n\n" "$YELLOW" "$NC"
     printf "%bAPI Documentation:%b\n" "$BLUE" "$NC"
-    printf "• Swagger UI: %b%s://%s:%s/swagger%b\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
-    printf "• Health Check: %b%s://%s:%s/health%b\n\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5000")" "$NC"
+    printf "• Swagger UI: %b%s://%s:%s/swagger%b\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5185")" "$NC"
+    printf "• Health Check: %b%s://%s:%s/health%b\n\n" "$BLUE" "$([ "$PRODUCTION_MODE" == "true" ] && echo "https" || echo "http")" "$primary_ip" "$([ "$PRODUCTION_MODE" == "true" ] && echo "443" || echo "5185")" "$NC"
     
     printf "%bSystem Logs:%b\n" "$BLUE" "$NC"
     printf "• Application logs: %b/var/log/claude-batch-server/%b\n" "$BLUE" "$NC"
@@ -2982,8 +2982,8 @@ fi
     printf "%bTroubleshooting:%b\n" "$BLUE" "$NC"
     printf "• Test Claude CLI: %bclaude --version%b\n" "$BLUE" "$NC"
     printf "• Test claude-server CLI: %bclaude-server --help%b\n" "$BLUE" "$NC"
-    printf "• Check API connectivity: %bcurl -f http://%s:5000/health%b\n" "$BLUE" "$primary_ip" "$NC"
-    printf "• Check port usage: %bsudo netstat -tlnp | grep -E ':(80|443|5000|8080|8443)'%b\n\n" "$BLUE" "$NC"
+    printf "• Check API connectivity: %bcurl -f http://%s:5185/health%b\n" "$BLUE" "$primary_ip" "$NC"
+    printf "• Check port usage: %bsudo netstat -tlnp | grep -E ':(80|443|5185|8080|8443)'%b\n\n" "$BLUE" "$NC"
     
     printf "%b🎯 Quick Start Summary:%b\n" "$GREEN" "$NC"
     [ -f "/tmp/claude-path-setup.sh" ] && printf "%bIf 'claude' command is not found, first run:%b %bsource /tmp/claude-path-setup.sh%b\n\n" "$YELLOW" "$NC" "$BLUE" "$NC"
@@ -3011,10 +3011,10 @@ fi
         printf "• Swagger UI: %bhttps://%s/swagger%b\n" "$BLUE" "$primary_ip" "$NC"
         printf "• CLI Login: %bclaude-server auth login --server-url https://%s%b\n\n" "$BLUE" "$primary_ip" "$NC"
     else
-        printf "• Web UI: %bhttp://%s:5000%b\n" "$BLUE" "$primary_ip" "$NC"
-        printf "• API: %bhttp://%s:5000/api%b\n" "$BLUE" "$primary_ip" "$NC"
-        printf "• Swagger UI: %bhttp://%s:5000/swagger%b\n" "$BLUE" "$primary_ip" "$NC"
-        printf "• CLI Login: %bclaude-server auth login --server-url http://%s:5000%b\n\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• Web UI: %bhttp://%s:5185%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• API: %bhttp://%s:5185/api%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• Swagger UI: %bhttp://%s:5185/swagger%b\n" "$BLUE" "$primary_ip" "$NC"
+        printf "• CLI Login: %bclaude-server auth login --server-url http://%s:5185%b\n\n" "$BLUE" "$primary_ip" "$NC"
     fi
     
     printf "%bService Management:%b\n" "$YELLOW" "$NC"
@@ -3151,7 +3151,7 @@ start_services() {
         local max_attempts=10
         local attempt=1
         while [[ $attempt -le $max_attempts ]]; do
-            if curl -f -s http://localhost:5000/health > /dev/null 2>&1; then
+            if curl -f -s http://localhost:5185/health > /dev/null 2>&1; then
                 log "Claude Batch Server is responding to health checks"
                 break
             elif [[ $attempt -eq $max_attempts ]]; then
@@ -3223,9 +3223,9 @@ $(echo -e "${BLUE}What gets installed:${NC}")
   ✅ Docker (optional, for development containers)
   
 $(echo -e "${BLUE}Architecture:${NC}")
-  • API Server: Runs directly on port 5000
-  • Web UI: Served by API from /wwwroot (same port 5000)
-  • Access: http://localhost:5000 or http://YOUR_IP:5000
+  • API Server: Runs directly on port 5185
+  • Web UI: Served by API from /wwwroot (same port 5185)
+  • Access: http://localhost:5185 or http://YOUR_IP:5185
   • Security: Basic (no SSL, minimal firewall)
   • User: Service runs as current user (e.g., jsbattig)
 
@@ -3246,7 +3246,7 @@ $(echo -e "${BLUE}Everything from Development Mode PLUS:${NC}")
   
 $(echo -e "${BLUE}Architecture:${NC}")
   • nginx: Serves web UI on ports 80/443 (with SSL redirect)
-  • nginx: Proxies /api requests to API server (port 5000)
+  • nginx: Proxies /api requests to API server (port 5185)
   • API Server: Backend only, not directly accessible
   • Access: https://YOUR_DOMAIN or https://YOUR_IP
   • Security: Full SSL/TLS, firewall protection
@@ -3277,7 +3277,7 @@ $(echo -e "${YELLOW}⚡ Quick Comparison Table:${NC}")
 │ $(echo -e "${BLUE}Feature${NC}")                 │ $(echo -e "${GREEN}Development${NC}")     │ $(echo -e "${GREEN}Production${NC}")      │
 ├─────────────────────────┼─────────────────┼─────────────────┤
 │ Web UI (Vite SPA)       │ ✅ Full         │ ✅ Full         │
-│ API Server (.NET)       │ ✅ Port 5000    │ ✅ Port 5000    │
+│ API Server (.NET)       │ ✅ Port 5185    │ ✅ Port 5185    │
 │ nginx Reverse Proxy     │ ❌ No           │ ✅ Yes          │
 │ SSL/HTTPS               │ ❌ HTTP only    │ ✅ HTTPS (443)  │
 │ Firewall Config         │ ❌ None         │ ✅ Full         │
