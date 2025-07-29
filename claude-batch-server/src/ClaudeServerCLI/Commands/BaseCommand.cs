@@ -155,7 +155,23 @@ public abstract class BaseCommand : Command
         
         if (await authService.IsAuthenticatedAsync(profile))
         {
-            return true;
+            // Get the token and set it on the API client
+            var token = await authService.GetTokenAsync(profile);
+            if (!string.IsNullOrEmpty(token))
+            {
+                var apiClient = GetRequiredService<IApiClient>(context);
+                apiClient.SetAuthToken(token);
+                WriteInfo($"Token set on ApiClient for profile '{profile}'");
+                return true;
+            }
+            else
+            {
+                WriteError($"Token was empty for profile '{profile}'");
+            }
+        }
+        else
+        {
+            WriteError($"Authentication check failed for profile '{profile}'");
         }
 
         WriteError($"Not authenticated for profile '{profile}'");
@@ -217,13 +233,31 @@ public abstract class AuthenticatedCommand : BaseCommand
     {
         var profile = context.ParseResult.GetValueForOption(_profileOption) ?? "default";
         
-        if (!await EnsureAuthenticatedAsync(context, profile))
+        // Get the API client instance once
+        var apiClient = GetRequiredService<IApiClient>(context);
+        
+        // Ensure authenticated and set token on the same instance
+        var authService = GetRequiredService<IAuthService>(context);
+        if (!await authService.IsAuthenticatedAsync(profile))
         {
+            WriteError($"Not authenticated for profile '{profile}'");
+            AnsiConsole.MarkupLine("[yellow]Run 'claude-server login' to authenticate.[/]");
             return 1;
         }
+        
+        // Get the token and set it on the API client
+        var token = await authService.GetTokenAsync(profile);
+        if (string.IsNullOrEmpty(token))
+        {
+            WriteError($"Token was empty for profile '{profile}'");
+            return 1;
+        }
+        
+        apiClient.SetAuthToken(token);
+        WriteInfo($"Token set on ApiClient for profile '{profile}'");
 
-        return await ExecuteAuthenticatedAsync(context, profile);
+        return await ExecuteAuthenticatedAsync(context, profile, apiClient);
     }
 
-    protected abstract Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile);
+    protected abstract Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient);
 }

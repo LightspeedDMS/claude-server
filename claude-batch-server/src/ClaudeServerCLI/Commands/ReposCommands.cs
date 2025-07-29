@@ -39,6 +39,11 @@ public class ReposCommand : Command
           # Remove a repository
           claude-server repos delete myproject
           
+          # Browse repository files
+          claude-server repos files list myproject
+          claude-server repos files show myproject README.md
+          claude-server repos files download myproject src/main.cs
+          
           # Watch repository list in real-time
           claude-server repos list --watch
         """)
@@ -47,6 +52,7 @@ public class ReposCommand : Command
         AddCommand(new ReposCreateCommand());
         AddCommand(new ReposShowCommand());
         AddCommand(new ReposDeleteCommand());
+        AddCommand(new RepositoryFilesCommand());
     }
 }
 
@@ -94,12 +100,11 @@ public class ReposListCommand : AuthenticatedCommand
         AddOption(_watchOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
 
         if (watch)
         {
@@ -298,7 +303,7 @@ public class ReposCreateCommand : AuthenticatedCommand
         );
 
         _cidxAwareOption = new Option<bool>(
-            aliases: ["--cidx-aware"],
+            aliases: ["--cidx", "--cidx-aware"],
             description: "Enable semantic indexing with cidx (default: true)",
             getDefaultValue: () => true
         );
@@ -309,32 +314,9 @@ public class ReposCreateCommand : AuthenticatedCommand
         AddOption(_descriptionOption);
         AddOption(_watchOption);
         AddOption(_cidxAwareOption);
-
-        // Add validation
-        this.SetHandler(async (context) =>
-        {
-            var gitUrl = context.ParseResult.GetValueForOption(_gitUrlOption);
-            var path = context.ParseResult.GetValueForOption(_pathOption);
-
-            if (string.IsNullOrEmpty(gitUrl) && string.IsNullOrEmpty(path))
-            {
-                WriteError("Either --clone (Git URL) or --path (local path) must be specified");
-                context.ExitCode = 1;
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(gitUrl) && !string.IsNullOrEmpty(path))
-            {
-                WriteError("Cannot specify both --clone and --path options");
-                context.ExitCode = 1;
-                return;
-            }
-
-            await base.Handler!.InvokeAsync(context);
-        });
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var name = context.ParseResult.GetValueForOption(_nameOption)!;
         var gitUrl = context.ParseResult.GetValueForOption(_gitUrlOption);
@@ -343,7 +325,19 @@ public class ReposCreateCommand : AuthenticatedCommand
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var cidxAware = context.ParseResult.GetValueForOption(_cidxAwareOption);
         var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
+
+        // Validate input
+        if (string.IsNullOrEmpty(gitUrl) && string.IsNullOrEmpty(path))
+        {
+            WriteError("Either --clone (Git URL) or --path (local path) must be specified");
+            return 1;
+        }
+
+        if (!string.IsNullOrEmpty(gitUrl) && !string.IsNullOrEmpty(path))
+        {
+            WriteError("Cannot specify both --clone and --path options");
+            return 1;
+        }
 
         // Validate local path if provided
         if (!string.IsNullOrEmpty(path))
@@ -496,13 +490,12 @@ public class ReposShowCommand : AuthenticatedCommand
         AddOption(_watchOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var name = context.ParseResult.GetValueForArgument(_nameArgument);
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
 
         if (watch)
         {
@@ -743,12 +736,11 @@ public class ReposDeleteCommand : AuthenticatedCommand
         AddOption(_forceOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var name = context.ParseResult.GetValueForArgument(_nameArgument);
         var force = context.ParseResult.GetValueForOption(_forceOption);
         var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
 
         try
         {

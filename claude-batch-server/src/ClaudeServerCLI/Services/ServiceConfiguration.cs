@@ -26,7 +26,20 @@ public static class ServiceConfiguration
         services.AddScoped<IUserManagementService, UserManagementService>();
 
         // HTTP client with Polly retry policy
-        services.AddHttpClient<IApiClient, ApiClient>();
+        var skipSslValidation = Environment.GetEnvironmentVariable("CLAUDE_SERVER_SKIP_SSL_VALIDATION") == "true";
+        
+        services.AddHttpClient<IApiClient, ApiClient>()
+            .ConfigurePrimaryHttpMessageHandler(() =>
+            {
+                var handler = new HttpClientHandler();
+                if (skipSslValidation)
+                {
+                    handler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                    handler.ServerCertificateCustomValidationCallback = 
+                        (httpRequestMessage, cert, certChain, policyErrors) => true;
+                }
+                return handler;
+            });
 
         // Logging
         services.AddLogging(builder =>

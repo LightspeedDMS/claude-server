@@ -1,5 +1,7 @@
 using System.CommandLine;
+using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using ClaudeServerCLI.Commands;
 using ClaudeServerCLI.Services;
@@ -15,11 +17,23 @@ class Program
             // Create the host with dependency injection
             using var host = ServiceConfiguration.CreateHost(args);
             
-            // Build the root command
+            // Build the root command with a custom command line builder
             var rootCommand = BuildRootCommand(host.Services);
             
+            var builder = new CommandLineBuilder(rootCommand);
+            builder.UseDefaults();
+            
+            // Add middleware to inject the service provider
+            builder.AddMiddleware(async (context, next) =>
+            {
+                context.BindingContext.AddService<IServiceProvider>(_ => host.Services);
+                await next(context);
+            });
+            
+            var parser = builder.Build();
+            
             // Execute the command
-            return await rootCommand.InvokeAsync(args);
+            return await parser.InvokeAsync(args);
         }
         catch (Exception ex)
         {
@@ -73,19 +87,15 @@ class Program
 
         // Add command groups
         var authCommand = new AuthCommand();
-        ConfigureServiceProvider(authCommand, serviceProvider);
         rootCommand.AddCommand(authCommand);
         
         var reposCommand = new ReposCommand();
-        ConfigureServiceProvider(reposCommand, serviceProvider);
         rootCommand.AddCommand(reposCommand);
         
         var jobsCommand = new JobsCommand();
-        ConfigureServiceProvider(jobsCommand, serviceProvider);
         rootCommand.AddCommand(jobsCommand);
         
         var userCommand = new UserCommand();
-        ConfigureServiceProvider(userCommand, serviceProvider);
         rootCommand.AddCommand(userCommand);
         
         // Add global options
@@ -110,39 +120,6 @@ class Program
         rootCommand.AddGlobalOption(timeoutOption);
 
         return rootCommand;
-    }
-
-    private static void ConfigureServiceProvider(Command command, IServiceProvider serviceProvider)
-    {
-        // Configure the service provider for all command handlers
-        foreach (var subCommand in command.Subcommands)
-        {
-            ConfigureServiceProvider(subCommand, serviceProvider);
-        }
-
-        // Set the service provider in the command's handler but don't replace handlers that are already set
-        if (command.Handler == null)
-        {
-            command.SetHandler((context) =>
-            {
-                context.BindingContext.AddService<IServiceProvider>(_ => serviceProvider);
-            });
-        }
-        else
-        {
-            // For commands that already have handlers (like our AuthenticatedCommand),
-            // just inject the service provider into the binding context
-            var originalHandler = command.Handler;
-            command.SetHandler(async (context) =>
-            {
-                context.BindingContext.AddService<IServiceProvider>(_ => serviceProvider);
-                
-                if (originalHandler != null)
-                {
-                    await originalHandler.InvokeAsync(context);
-                }
-            });
-        }
     }
 }
 

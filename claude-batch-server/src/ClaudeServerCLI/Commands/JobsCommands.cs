@@ -42,6 +42,11 @@ public class JobsCommand : Command
           claude-server jobs cancel abc123
           claude-server jobs delete abc123
           
+          # Manage job files
+          claude-server jobs files list abc123
+          claude-server jobs files upload abc123 ./input.txt
+          claude-server jobs files download abc123 output.txt
+          
           # Advanced job creation
           claude-server jobs create --repo myproject --prompt "Analyze security" --git-aware --cidx-aware --timeout 3600
         """)
@@ -53,6 +58,7 @@ public class JobsCommand : Command
         AddCommand(new JobsCancelCommand());
         AddCommand(new JobsDeleteCommand());
         AddCommand(new JobsLogsCommand());
+        AddCommand(new JobFilesCommand());
     }
 }
 
@@ -129,17 +135,14 @@ public class JobsListCommand : AuthenticatedCommand
         AddOption(_limitOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var status = context.ParseResult.GetValueForOption(_statusOption);
         var repository = context.ParseResult.GetValueForOption(_repositoryOption);
         var limit = context.ParseResult.GetValueForOption(_limitOption);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        var filter = new CliJobFilter
+        var cancellationToken = context.GetCancellationToken();        var filter = new CliJobFilter
         {
             Status = status,
             Repository = repository,
@@ -327,17 +330,14 @@ public class JobsCreateCommand : AuthenticatedCommand
         AddOption(_timeoutOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var repository = context.ParseResult.GetValueForOption(_repositoryOption)!;
         var prompt = context.ParseResult.GetValueForOption(_promptOption)!;
         var autoStart = context.ParseResult.GetValueForOption(_autoStartOption);
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var timeout = context.ParseResult.GetValueForOption(_timeoutOption);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        // Watch implies auto-start
+        var cancellationToken = context.GetCancellationToken();        // Watch implies auto-start
         if (watch) autoStart = true;
 
         try
@@ -520,15 +520,12 @@ public class JobsShowCommand : AuthenticatedCommand
         AddOption(_watchOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        // If partial ID provided, try to find full ID
+        var cancellationToken = context.GetCancellationToken();        // If partial ID provided, try to find full ID
         var fullJobId = await ResolveJobIdAsync(apiClient, jobId, cancellationToken);
         if (string.IsNullOrEmpty(fullJobId))
         {
@@ -734,13 +731,10 @@ public class JobsStartCommand : AuthenticatedCommand
         AddArgument(_jobIdArgument);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        try
+        var cancellationToken = context.GetCancellationToken();        try
         {
             WriteInfo($"Starting job '{jobId}'...");
             var response = await apiClient.StartJobAsync(jobId, cancellationToken);
@@ -783,13 +777,10 @@ public class JobsCancelCommand : AuthenticatedCommand
         AddArgument(_jobIdArgument);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        try
+        var cancellationToken = context.GetCancellationToken();        try
         {
             WriteInfo($"Cancelling job '{jobId}'...");
             var response = await apiClient.CancelJobAsync(jobId, cancellationToken);
@@ -849,14 +840,11 @@ public class JobsDeleteCommand : AuthenticatedCommand
         AddOption(_forceOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
         var force = context.ParseResult.GetValueForOption(_forceOption);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        try
+        var cancellationToken = context.GetCancellationToken();        try
         {
             // Check if job exists first
             JobStatusResponse? job;
@@ -943,15 +931,12 @@ public class JobsLogsCommand : AuthenticatedCommand
         AddOption(_tailOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var tail = context.ParseResult.GetValueForOption(_tailOption);
-        var cancellationToken = context.GetCancellationToken();
-        var apiClient = GetRequiredService<IApiClient>(context);
-
-        if (watch)
+        var cancellationToken = context.GetCancellationToken();        if (watch)
         {
             return await WatchJobLogsAsync(apiClient, jobId, cancellationToken);
         }

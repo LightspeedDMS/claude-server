@@ -78,7 +78,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
         AddOption(_timeoutOption);
     }
 
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile)
+    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var repository = context.ParseResult.GetValueForOption(_repositoryOption);
         var promptOption = context.ParseResult.GetValueForOption(_promptOption);
@@ -88,10 +88,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
         var autoStart = context.ParseResult.GetValueForOption(_autoStartOption);
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var timeout = context.ParseResult.GetValueForOption(_timeoutOption);
-        var cancellationToken = context.GetCancellationToken();
-
-        var apiClient = GetRequiredService<IApiClient>(context);
-        var promptService = GetRequiredService<IPromptService>(context);
+        var cancellationToken = context.GetCancellationToken();        var promptService = GetRequiredService<IPromptService>(context);
         var fileUploadService = GetRequiredService<IFileUploadService>(context);
 
         // Watch implies auto-start

@@ -74,7 +74,7 @@ public class ApiClient : IApiClient, IDisposable
         
         try
         {
-            var response = await PostAsync<object, LogoutResponse>("auth/logout", new { }, cancellationToken);
+            var response = await PostAsync<LogoutRequest, LogoutResponse>("auth/logout", new LogoutRequest(), cancellationToken);
             ClearAuthToken();
             _logger.LogInformation("Logout successful");
             return response ?? new LogoutResponse { Success = true };
@@ -372,6 +372,8 @@ public class ApiClient : IApiClient, IDisposable
         string json;
         if (request is LoginRequest loginReq)
             json = JsonSerializer.Serialize(loginReq, CliJsonSerializerContext.Default.LoginRequest);
+        else if (request is LogoutRequest logoutReq)
+            json = JsonSerializer.Serialize(logoutReq, CliJsonSerializerContext.Default.LogoutRequest);
         else if (request is CreateJobRequest createJobReq)
             json = JsonSerializer.Serialize(createJobReq, CliJsonSerializerContext.Default.CreateJobRequest);
         else
@@ -386,6 +388,8 @@ public class ApiClient : IApiClient, IDisposable
         // Generic deserialization for response types
         if (typeof(TResponse) == typeof(LoginResponse))
             return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.LoginResponse)!;
+        if (typeof(TResponse) == typeof(LogoutResponse))
+            return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.LogoutResponse)!;
         if (typeof(TResponse) == typeof(JobStatusResponse))
             return (TResponse)(object)JsonSerializer.Deserialize(responseJson, CliJsonSerializerContext.Default.JobStatusResponse)!;
         if (typeof(TResponse) == typeof(StartJobResponse))

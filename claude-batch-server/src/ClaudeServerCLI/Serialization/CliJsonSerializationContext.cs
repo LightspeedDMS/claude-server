@@ -30,6 +30,8 @@ namespace ClaudeServerCLI.Serialization;
 [JsonSerializable(typeof(FileUploadResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(LogoutRequest))]
+[JsonSerializable(typeof(LogoutResponse))]
 [JsonSerializable(typeof(JobStatusResponse))]
 [JsonSerializable(typeof(StartJobResponse))]
 [JsonSerializable(typeof(CancelJobResponse))]
@@ -41,6 +43,13 @@ namespace ClaudeServerCLI.Serialization;
 [JsonSerializable(typeof(CreateJobRequest))]
 [JsonSerializable(typeof(RepositoryResponse))]
 [JsonSerializable(typeof(IEnumerable<RepositoryResponse>))]
+[JsonSerializable(typeof(RegisterRepositoryRequest))]
+[JsonSerializable(typeof(RegisterRepositoryResponse))]
+[JsonSerializable(typeof(UnregisterRepositoryResponse))]
+[JsonSerializable(typeof(AheadBehindStatus))]
+[JsonSerializable(typeof(FileInfoResponse))]
+[JsonSerializable(typeof(FileContentResponse))]
+[JsonSerializable(typeof(DirectoryInfoResponse))]
 public partial class CliJsonSerializerContext : JsonSerializerContext
 {
 }
