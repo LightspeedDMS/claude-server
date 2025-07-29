@@ -320,6 +320,32 @@ dry_run_analyze_workspace() {
             ;;
     esac
     
+    # Detect existing btrfs filesystems
+    dry_run_check "Detecting existing btrfs filesystems"
+    local btrfs_filesystems=($(detect_btrfs_filesystems))
+    
+    if [[ ${#btrfs_filesystems[@]} -gt 0 ]]; then
+        dry_run_result "✓ Found ${#btrfs_filesystems[@]} btrfs filesystem(s):"
+        for btrfs_info in "${btrfs_filesystems[@]}"; do
+            local mount_point=$(echo "$btrfs_info" | cut -d: -f1)
+            local device=$(echo "$btrfs_info" | cut -d: -f2)
+            local avail_space=$(echo "$btrfs_info" | cut -d: -f3)
+            
+            if [[ "$mount_point" == "unmounted" ]]; then
+                dry_run_result "  • $device (unmounted, $avail_space)"
+            else
+                dry_run_result "  • $mount_point on $device ($avail_space available)"
+            fi
+        done
+        
+        if [[ "$current_cow_support" != "optimal" ]]; then
+            dry_run_action "OPTION: Use existing btrfs filesystem for workspace"
+            dry_run_action "  1. Configure workspace directory on btrfs volume"
+            dry_run_action "  2. Update appsettings.json workspace paths"
+            dry_run_action "  3. No formatting required - preserves existing data"
+        fi
+    fi
+    
     # Detect empty disks for potential btrfs workspace
     dry_run_check "Detecting empty disks for dedicated btrfs workspace"
     local empty_disks_info=($(detect_empty_disks))
@@ -340,8 +366,10 @@ dry_run_analyze_workspace() {
             dry_run_action "  4. Update appsettings.json workspace paths"
             dry_run_action "  5. Install btrfs-progs tools"
         fi
-    else
-        dry_run_result "✗ No empty disks detected for dedicated btrfs workspace"
+    fi
+    
+    if [[ ${#btrfs_filesystems[@]} -eq 0 && ${#empty_disks_info[@]} -eq 0 ]]; then
+        dry_run_result "✗ No btrfs filesystems or empty disks detected"
         if [[ "$current_cow_support" == "none" || "$current_cow_support" == "limited" ]]; then
             dry_run_action "Consider adding dedicated storage for optimal performance"
         fi
@@ -350,8 +378,12 @@ dry_run_analyze_workspace() {
     # Standard workspace directory checks
     dry_run_check "Checking workspace directories"
     local workspace_base="/workspace"
-    if [[ ${#empty_disks_info[@]} -gt 0 && "$current_cow_support" != "optimal" ]]; then
-        workspace_base="/claude-workspace (if btrfs volume created)"
+    if [[ "$current_cow_support" != "optimal" ]]; then
+        if [[ ${#btrfs_filesystems[@]} -gt 0 ]]; then
+            workspace_base="/path/to/btrfs/claude-workspace (if existing btrfs chosen)"
+        elif [[ ${#empty_disks_info[@]} -gt 0 ]]; then
+            workspace_base="/claude-workspace (if btrfs volume created)"
+        fi
     fi
     
     for dir in "$workspace_base" "$workspace_base/repos" "$workspace_base/jobs" "/var/log/claude-batch-server"; do
@@ -1254,8 +1286,10 @@ install_claude_cli() {
         claude_was_already_installed=true
     fi
     
-    # Install using official installer as regular user
-    curl -fsSL https://claude.ai/install.sh | bash
+    # Install using official installer as regular user (only if not already installed)
+    if [[ "$claude_was_already_installed" == "false" ]]; then
+        curl -fsSL https://claude.ai/install.sh | bash
+    fi
     
     # Ensure .local/bin is in PATH for the current user
     if [[ -f "$HOME/.local/bin/claude" ]]; then
@@ -1422,6 +1456,65 @@ detect_empty_disks() {
     fi
     
     printf '%s\n' "${empty_disks[@]}"
+}
+
+# Detect all btrfs-formatted partitions/disks with available space
+detect_btrfs_filesystems() {
+    local btrfs_mounts=()
+    
+    # Find all btrfs mount points with available space
+    while IFS= read -r line; do
+        local mount_point=$(echo "$line" | awk '{print $6}')
+        local fs_type=$(echo "$line" | awk '{print $2}')
+        local device=$(echo "$line" | awk '{print $1}')
+        local size=$(echo "$line" | awk '{print $3}')
+        local used=$(echo "$line" | awk '{print $4}')
+        local avail=$(echo "$line" | awk '{print $5}')
+        
+        if [[ "$fs_type" == "btrfs" ]]; then
+            # Skip system mounts and small partitions
+            if [[ "$mount_point" != "/" && "$mount_point" != "/boot" && "$mount_point" != "/home" ]]; then
+                # Convert available space to GB
+                local avail_gb=$(echo "$avail" | sed 's/G//' | sed 's/M//' | awk '{
+                    if ($0 ~ /M$/) { printf "%.1fGB", $1/1024 }
+                    else if ($0 ~ /T$/) { printf "%.0fGB", $1*1024 }
+                    else { printf "%.0fGB", $1 }
+                }')
+                
+                # Only include if more than 10GB available
+                local avail_num=$(echo "$avail" | sed 's/[^0-9.]//g')
+                local unit=$(echo "$avail" | sed 's/[0-9.]//g')
+                local avail_in_gb=0
+                
+                case "$unit" in
+                    "G") avail_in_gb=$avail_num ;;
+                    "T") avail_in_gb=$(awk "BEGIN {print $avail_num * 1024}") ;;
+                    "M") avail_in_gb=$(awk "BEGIN {print $avail_num / 1024}") ;;
+                esac
+                
+                if awk "BEGIN {exit !($avail_in_gb > 10)}"; then
+                    btrfs_mounts+=("$mount_point:$device:$avail_gb")
+                fi
+            fi
+        fi
+    done < <(df -T 2>/dev/null | tail -n +2)
+    
+    # Also check for unmounted btrfs filesystems
+    if command -v blkid >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            if [[ "$line" =~ TYPE=\"btrfs\" ]]; then
+                local device=$(echo "$line" | cut -d: -f1)
+                # Check if this device is already mounted
+                if ! df -T 2>/dev/null | grep -q "^$device"; then
+                    # Get size info if possible
+                    local size_info=$(lsblk -no SIZE "$device" 2>/dev/null || echo "Unknown")
+                    btrfs_mounts+=("unmounted:$device:$size_info")
+                fi
+            fi
+        done < <(sudo blkid 2>/dev/null || true)
+    fi
+    
+    printf '%s\n' "${btrfs_mounts[@]}"
 }
 
 # Check if current workspace location supports CoW
@@ -1623,6 +1716,63 @@ create_btrfs_workspace() {
     return 0
 }
 
+# Setup unmounted btrfs filesystem as workspace
+setup_unmounted_btrfs_workspace() {
+    local device="$1"
+    local workspace_path="/claude-workspace"
+    local current_user=$(whoami)
+    local current_group=$(id -gn)
+    
+    log "Setting up unmounted btrfs filesystem $device as workspace..."
+    
+    # Create mount point
+    sudo mkdir -p "$workspace_path"
+    
+    # Mount the filesystem
+    log "Mounting $device at $workspace_path..."
+    sudo mount "$device" "$workspace_path"
+    
+    # Add to fstab for persistence
+    local uuid=$(sudo blkid -s UUID -o value "$device")
+    if ! grep -q "UUID=$uuid" /etc/fstab; then
+        echo "UUID=$uuid $workspace_path btrfs defaults,compress=zstd,noatime 0 0" | sudo tee -a /etc/fstab
+    fi
+    
+    # Create directories if they don't exist
+    sudo mkdir -p "$workspace_path"/{repos,jobs}
+    sudo chown -R "$current_user:$current_group" "$workspace_path"
+    sudo chmod 755 "$workspace_path" "$workspace_path"/{repos,jobs}
+    
+    # Update configuration
+    update_workspace_config "$workspace_path"
+    
+    log "✓ Btrfs workspace configured at $workspace_path"
+    return 0
+}
+
+# Configure existing btrfs mount as workspace
+configure_btrfs_workspace() {
+    local mount_point="$1"
+    local current_user=$(whoami)
+    local current_group=$(id -gn)
+    
+    log "Configuring existing btrfs at $mount_point as workspace..."
+    
+    # Create workspace subdirectory
+    local workspace_path="$mount_point/claude-workspace"
+    sudo mkdir -p "$workspace_path"/{repos,jobs}
+    
+    # Set permissions
+    sudo chown -R "$current_user:$current_group" "$workspace_path"
+    sudo chmod 755 "$workspace_path" "$workspace_path"/{repos,jobs}
+    
+    # Update configuration
+    update_workspace_config "$workspace_path"
+    
+    log "✓ Workspace configured at $workspace_path"
+    return 0
+}
+
 # Interactive workspace setup workflow
 setup_workspace_interactively() {
     # Skip interactive prompts in dry-run mode
@@ -1656,8 +1806,17 @@ setup_workspace_interactively() {
     # Detect empty disks
     local empty_disks_info=($(detect_empty_disks))
     
-    if [[ ${#empty_disks_info[@]} -eq 0 ]]; then
-        log "No empty disks detected for dedicated btrfs volume."
+    # Detect existing btrfs filesystems
+    local btrfs_filesystems=($(detect_btrfs_filesystems))
+    
+    # If we already have optimal support and no alternatives, we're done
+    if [[ "$current_cow_support" == "optimal" ]]; then
+        return 0
+    fi
+    
+    # Check if we have any workspace options
+    if [[ ${#empty_disks_info[@]} -eq 0 && ${#btrfs_filesystems[@]} -eq 0 ]]; then
+        log "No empty disks or existing btrfs filesystems detected for workspace."
         if [[ "$current_cow_support" == "none" || "$current_cow_support" == "limited" ]]; then
             warn "Performance will be suboptimal without proper CoW support."
         fi
@@ -1670,17 +1829,45 @@ setup_workspace_interactively() {
     echo
     echo "Current status: /workspace ($current_cow_support CoW support)"
     echo
-    echo "Available empty disks for dedicated btrfs workspace:"
     
-    local disk_options=()
+    local all_options=()
+    local option_types=()
     local i=1
-    for disk_info in "${empty_disks_info[@]}"; do
-        local disk=$(echo "$disk_info" | cut -d: -f1)
-        local size=$(echo "$disk_info" | cut -d: -f2)
-        echo "  $i) $disk ($size) - Create dedicated btrfs workspace"
-        disk_options+=("$disk")
-        ((i++))
-    done
+    
+    # Add existing btrfs filesystems first (preferred option)
+    if [[ ${#btrfs_filesystems[@]} -gt 0 ]]; then
+        echo "Available btrfs filesystems with CoW support:"
+        for btrfs_info in "${btrfs_filesystems[@]}"; do
+            local mount_point=$(echo "$btrfs_info" | cut -d: -f1)
+            local device=$(echo "$btrfs_info" | cut -d: -f2)
+            local avail_space=$(echo "$btrfs_info" | cut -d: -f3)
+            
+            if [[ "$mount_point" == "unmounted" ]]; then
+                echo "  $i) $device (unmounted btrfs, $avail_space) - Mount and use as workspace"
+            else
+                echo "  $i) $mount_point on $device ($avail_space available) - Use existing btrfs filesystem"
+            fi
+            
+            all_options+=("$btrfs_info")
+            option_types+=("btrfs")
+            ((i++))
+        done
+        echo
+    fi
+    
+    # Add empty disks for formatting
+    if [[ ${#empty_disks_info[@]} -gt 0 ]]; then
+        echo "Available empty disks for dedicated btrfs workspace:"
+        for disk_info in "${empty_disks_info[@]}"; do
+            local disk=$(echo "$disk_info" | cut -d: -f1)
+            local size=$(echo "$disk_info" | cut -d: -f2)
+            echo "  $i) $disk ($size) - Format as btrfs and use as workspace"
+            all_options+=("$disk_info")
+            option_types+=("empty")
+            ((i++))
+        done
+        echo
+    fi
     
     echo "  $i) Keep current workspace (/workspace)"
     echo
@@ -1694,22 +1881,46 @@ setup_workspace_interactively() {
                 log "Keeping current workspace configuration"
                 return 0
             else
-                local selected_disk="${disk_options[$((choice-1))]}"
-                local disk_size=$(echo "${empty_disks_info[$((choice-1))]}" | cut -d: -f2)
+                local idx=$((choice-1))
+                local option_type="${option_types[$idx]}"
+                local option_info="${all_options[$idx]}"
                 
-                echo
-                warn "⚠  WARNING: This will PERMANENTLY FORMAT disk $selected_disk ($disk_size)"
-                warn "⚠  ALL DATA on this disk will be LOST!"
-                echo
-                echo -n "Type 'YES' to confirm formatting $selected_disk: "
-                read -r confirmation
-                
-                if [[ "$confirmation" == "YES" ]]; then
-                    create_btrfs_workspace "$selected_disk"
-                    return $?
+                if [[ "$option_type" == "btrfs" ]]; then
+                    # Handle existing btrfs filesystem
+                    local mount_point=$(echo "$option_info" | cut -d: -f1)
+                    local device=$(echo "$option_info" | cut -d: -f2)
+                    local avail_space=$(echo "$option_info" | cut -d: -f3)
+                    
+                    if [[ "$mount_point" == "unmounted" ]]; then
+                        echo
+                        log "Mounting and configuring unmounted btrfs filesystem..."
+                        setup_unmounted_btrfs_workspace "$device"
+                        return $?
+                    else
+                        echo
+                        log "Configuring workspace to use existing btrfs at $mount_point..."
+                        configure_btrfs_workspace "$mount_point"
+                        return $?
+                    fi
                 else
-                    log "Disk formatting cancelled"
-                    continue
+                    # Handle empty disk formatting
+                    local selected_disk=$(echo "$option_info" | cut -d: -f1)
+                    local disk_size=$(echo "$option_info" | cut -d: -f2)
+                    
+                    echo
+                    warn "⚠  WARNING: This will PERMANENTLY FORMAT disk $selected_disk ($disk_size)"
+                    warn "⚠  ALL DATA on this disk will be LOST!"
+                    echo
+                    echo -n "Type 'YES' to confirm formatting $selected_disk: "
+                    read -r confirmation
+                    
+                    if [[ "$confirmation" == "YES" ]]; then
+                        create_btrfs_workspace "$selected_disk"
+                        return $?
+                    else
+                        log "Disk formatting cancelled"
+                        continue
+                    fi
                 fi
             fi
         else
