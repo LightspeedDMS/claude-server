@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeBatchServer.Core.Services;
@@ -21,20 +22,21 @@ public class HashAuthenticationTests
         var keyBytes = System.Text.Encoding.ASCII.GetBytes("TestKeyForHashAuthenticationThatIsLongEnough");
         var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
         
-        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, signingKey);
+        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, Mock.Of<ILogger<ShadowFileAuthenticationService>>(), signingKey);
     }
 
     private TestableAuthService CreateTestableAuthService()
     {
         var keyBytes = System.Text.Encoding.ASCII.GetBytes("TestKeyForHashAuthenticationThatIsLongEnough");
         var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
-        return new TestableAuthService(_mockConfiguration.Object, signingKey);
+        return new TestableAuthService(_mockConfiguration.Object, Mock.Of<ILogger<ShadowFileAuthenticationService>>(), signingKey);
     }
 
     [Theory]
     [InlineData("$6$randomsalt$hash123456789012345678901234567890")]
     [InlineData("$5$anothersalt$sha256hash123456789012345678")]
     [InlineData("$1$md5salt$md5hash12345678")]
+    [InlineData("$y$j9T$VRSySjntzaFIR9Ax10T7A0$dQhQpfWxdgtdfq1C63UqumQDfPISr8DN3M5Oon2u5E.")]
     public async Task AuthenticateAsync_WithValidHashFormat_ShouldAcceptAsPrecomputedHash(string hashPassword)
     {
         var request = new LoginRequest
@@ -99,6 +101,17 @@ public class HashAuthenticationTests
         result.Should().BeTrue();
     }
 
+    [Fact]
+    public void IsPrecomputedHash_WithValidYescryptHash_ShouldReturnTrue()
+    {
+        var hashPassword = "$y$j9T$VRSySjntzaFIR9Ax10T7A0$dQhQpfWxdgtdfq1C63UqumQDfPISr8DN3M5Oon2u5E.";
+        
+        var authService = CreateTestableAuthService();
+        var result = authService.TestIsPrecomputedHash(hashPassword);
+
+        result.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("plaintext")]
     [InlineData("$invalid")]
@@ -140,7 +153,7 @@ public class HashAuthenticationTests
 // Test helper class to expose private methods for testing
 internal class TestableAuthService : ShadowFileAuthenticationService
 {
-    public TestableAuthService(IConfiguration configuration, Microsoft.IdentityModel.Tokens.SymmetricSecurityKey signingKey) : base(configuration, signingKey) { }
+    public TestableAuthService(IConfiguration configuration, ILogger<ShadowFileAuthenticationService> logger, Microsoft.IdentityModel.Tokens.SymmetricSecurityKey signingKey) : base(configuration, logger, signingKey) { }
 
     public bool TestIsPrecomputedHash(string password)
     {

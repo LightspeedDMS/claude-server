@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeBatchServer.Core.Services;
@@ -21,7 +22,7 @@ public class ShadowFileAuthenticationServiceTests
         var keyBytes = System.Text.Encoding.ASCII.GetBytes("ThisIsATestKeyThatIsLongEnoughForTesting");
         var signingKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(keyBytes) { KeyId = "test-key" };
         
-        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, signingKey);
+        _authService = new ShadowFileAuthenticationService(_mockConfiguration.Object, Mock.Of<ILogger<ShadowFileAuthenticationService>>(), signingKey);
     }
 
     [Fact]
