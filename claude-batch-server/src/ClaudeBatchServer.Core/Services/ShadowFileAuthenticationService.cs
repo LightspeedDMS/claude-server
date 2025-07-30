@@ -3,24 +3,28 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeBatchServer.Core.Models;
+using Fasterlimit.Yescrypt;
 
 namespace ClaudeBatchServer.Core.Services;
 
 public class ShadowFileAuthenticationService : IAuthenticationService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<ShadowFileAuthenticationService> _logger;
     private readonly SymmetricSecurityKey _signingKey;
     private readonly int _jwtExpiryHours;
     private readonly string _shadowFilePath;
     private readonly string _passwdFilePath;
     private readonly HashSet<string> _revokedTokens = new();
 
-    public ShadowFileAuthenticationService(IConfiguration configuration, SymmetricSecurityKey signingKey)
+    public ShadowFileAuthenticationService(IConfiguration configuration, ILogger<ShadowFileAuthenticationService> logger, SymmetricSecurityKey signingKey)
     {
         _configuration = configuration;
+        _logger = logger;
         _signingKey = signingKey;
         _jwtExpiryHours = int.Parse(_configuration["Jwt:ExpiryHours"] ?? "24");
         _shadowFilePath = ExpandPath(_configuration["Auth:ShadowFilePath"] ?? "/etc/shadow");
@@ -44,8 +48,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
                 Expires = expiry
             };
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Authentication failed for user request");
             return null;
         }
     }
@@ -70,8 +75,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
 
             return Task.FromResult(true);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Token validation failed");
             return Task.FromResult(false);
         }
     }
@@ -88,8 +94,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
 
             return Task.FromResult<User?>(new User { Username = username });
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to get user from token");
             return Task.FromResult<User?>(null);
         }
     }
@@ -132,8 +139,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
                 LastLogin = DateTime.UtcNow
             };
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "User credential validation failed");
             return null;
         }
     }
@@ -146,8 +154,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
             return passwdContent.Split('\n')
                 .Any(line => line.StartsWith($"{username}:"));
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to check if user exists in passwd file");
             return false;
         }
     }
@@ -162,8 +171,9 @@ public class ShadowFileAuthenticationService : IAuthenticationService
             
             return shadowLine?.Split(':')[1];
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to read shadow file entry for user {Username}", username);
             return null;
         }
     }
@@ -178,36 +188,42 @@ public class ShadowFileAuthenticationService : IAuthenticationService
 
         var algorithm = parts[1];
         var salt = parts[2];
-        var expectedHash = parts[3];
 
-        var computedHash = algorithm switch
+        return algorithm switch
         {
-            "1" => ComputeMD5Hash(password, salt),
-            "5" => ComputeSHA256Hash(password, salt),
-            "6" => ComputeSHA512Hash(password, salt),
-            _ => null
+            "1" => VerifyMD5Hash(password, salt, parts[3]),
+            "5" => VerifySHA256Hash(password, salt, parts[3]),
+            "6" => VerifySHA512Hash(password, salt, parts[3]),
+            "y" => VerifyYescryptHash(password, hash),
+            _ => HandleUnsupportedAlgorithm(algorithm)
         };
-
-        return computedHash == expectedHash;
     }
 
-    private string ComputeMD5Hash(string password, string salt)
+    private bool HandleUnsupportedAlgorithm(string algorithm)
+    {
+        _logger.LogWarning("Unsupported password hashing algorithm: '{Algorithm}'. Supported algorithms: MD5 ($1$), SHA-256 ($5$), SHA-512 ($6$), yescrypt ($y$)", algorithm);
+        return false;
+    }
+
+    private bool VerifyMD5Hash(string password, string salt, string expectedHash)
     {
         using var md5 = MD5.Create();
         var input = Encoding.UTF8.GetBytes(password + salt);
         var hash = md5.ComputeHash(input);
-        return Convert.ToBase64String(hash).TrimEnd('=');
+        var computedHash = Convert.ToBase64String(hash).TrimEnd('=');
+        return computedHash == expectedHash;
     }
 
-    private string ComputeSHA256Hash(string password, string salt)
+    private bool VerifySHA256Hash(string password, string salt, string expectedHash)
     {
         using var sha256 = SHA256.Create();
         var input = Encoding.UTF8.GetBytes(password + salt);
         var hash = sha256.ComputeHash(input);
-        return Convert.ToBase64String(hash).TrimEnd('=');
+        var computedHash = Convert.ToBase64String(hash).TrimEnd('=');
+        return computedHash == expectedHash;
     }
 
-    private string ComputeSHA512Hash(string password, string salt)
+    private bool VerifySHA512Hash(string password, string salt, string expectedHash)
     {
         // For now, use a simple approach that calls the system crypt via Python
         // This is not ideal for production but works for testing
@@ -235,15 +251,31 @@ public class ShadowFileAuthenticationService : IAuthenticationService
                 var parts = result.Split('$');
                 if (parts.Length >= 4)
                 {
-                    return parts[3];
+                    return parts[3] == expectedHash;
                 }
             }
             
-            return string.Empty;
+            return false;
         }
-        catch
+        catch (Exception ex)
         {
-            return string.Empty;
+            _logger.LogError(ex, "SHA-512 password verification failed");
+            return false;
+        }
+    }
+
+    private bool VerifyYescryptHash(string password, string hash)
+    {
+        // Use the yescrypt library to verify the password
+        try
+        {
+            byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
+            return Yescrypt.CheckPasswd(passwordBytes, hash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Yescrypt password verification failed");
+            return false;
         }
     }
 
@@ -253,7 +285,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
     private bool IsPrecomputedHash(string password)
     {
         // Shadow file hash format: $algorithm$salt$hash
-        // Valid algorithms: $1$ (MD5), $5$ (SHA-256), $6$ (SHA-512)
+        // Valid algorithms: $1$ (MD5), $5$ (SHA-256), $6$ (SHA-512), $y$ (yescrypt)
         if (!password.StartsWith("$")) return false;
         
         var parts = password.Split('$');
@@ -261,7 +293,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         
         // Check if algorithm is supported
         var algorithm = parts[1];
-        return algorithm is "1" or "5" or "6";
+        return algorithm is "1" or "5" or "6" or "y";
     }
 
     /// <summary>
