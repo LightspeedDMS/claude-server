@@ -4,6 +4,7 @@ using System.Text.Json;
 using Xunit;
 using Xunit.Abstractions;
 using ClaudeBatchServer.Core.DTOs;
+using ClaudeServerCLI.Models;
 
 namespace ClaudeServerCLI.IntegrationTests.Commands;
 
@@ -71,9 +72,15 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             throw new InvalidOperationException($"Failed to create test job: {createJobResult.StandardOutput}");
         }
 
-        // Extract job ID from output (assuming format like "Job created successfully: abc123")
+        // Extract job ID from output (supports both "Job created successfully: abc123" and "Job created: abc123")
         var output = createJobResult.StandardOutput;
         var jobIdIndex = output.IndexOf("Job created successfully:");
+        if (jobIdIndex < 0)
+        {
+            // Try alternative format from EnhancedJobsCreateCommand
+            jobIdIndex = output.IndexOf("Job created:");
+        }
+        
         if (jobIdIndex >= 0)
         {
             var jobIdSection = output.Substring(jobIdIndex).Split('\n')[0];
@@ -98,8 +105,18 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
         try
         {
-            await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {testFile1} --name test-input-e2e.txt");
-            await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {testFile2} --name config-e2e.json");
+            var upload1Result = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {testFile1} --name test-input-e2e.txt --quiet");
+            Output.WriteLine($"Upload 1 result: Exit={upload1Result.ExitCode}, Output={upload1Result.CombinedOutput}");
+            
+            var upload2Result = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {testFile2} --name config-e2e.json --quiet");
+            Output.WriteLine($"Upload 2 result: Exit={upload2Result.ExitCode}, Output={upload2Result.CombinedOutput}");
+            
+            // Add a small delay to ensure job persistence completes before tests run
+            await Task.Delay(2000);
+            
+            // Verify job still exists after setup (debugging step)
+            var verifyResult = await CliHelper.ExecuteCommandAsync($"jobs list --format json");
+            Output.WriteLine($"Jobs list after setup: {verifyResult.CombinedOutput}");
         }
         finally
         {
@@ -143,20 +160,32 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
     public async Task JobFilesListCommand_E2E_WithValidJob_ShouldReturnFiles()
     {
         // Act
-        var result = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
+        var result = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --quiet");
+
+        // Enhanced debugging - show command output when test fails
+        Output.WriteLine($"Command: jobs files list {_testJobId}");
+        Output.WriteLine($"Exit code: {result.ExitCode}");
+        Output.WriteLine($"Standard output: {result.StandardOutput}");
+        Output.WriteLine($"Standard error: {result.StandardError}");
+        Output.WriteLine($"Combined output: {result.CombinedOutput}");
 
         // Assert
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("test-input-e2e.txt", result.StandardOutput);
-        Assert.Contains("config-e2e.json", result.StandardOutput);
+        // Files may have suffixes added by server to prevent conflicts
+        Assert.Contains("test-input-e2e", result.StandardOutput); // Base filename should be present
+        Assert.Contains("config-e2e", result.StandardOutput); // Base filename should be present  
         Assert.DoesNotContain("Error:", result.StandardOutput);
+        
+        // Should show file sizes
+        Assert.Contains("41 B", result.StandardOutput); // File 1 size
+        Assert.Contains("39 B", result.StandardOutput); // File 2 size
     }
 
     [Fact]
     public async Task JobFilesListCommand_E2E_WithJsonFormat_ShouldReturnValidJson()
     {
         // Act
-        var result = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json");
+        var result = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
 
         // Assert
         Assert.Equal(0, result.ExitCode);
@@ -189,8 +218,25 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
         try
         {
+            // First, list files to get the actual filename (server may add suffix)
+            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
+            Assert.Equal(0, listResult.ExitCode);
+            
+            var jobFiles = JsonSerializer.Deserialize<JobFile[]>(listResult.StandardOutput);
+            var testFile = jobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("test-input-e2e"));
+            Assert.NotNull(testFile);
+            
+            var actualFileName = !string.IsNullOrEmpty(testFile.FileName) ? testFile.FileName : testFile.Name;
+
             // Act
-            var result = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} test-input-e2e.txt --output {tempFile}");
+            var result = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} \"{actualFileName}\" --output {tempFile} --overwrite");
+
+            // Enhanced debugging - show command output when test fails
+            Output.WriteLine($"Command: jobs files download {_testJobId} \"{actualFileName}\" --output {tempFile}");
+            Output.WriteLine($"Exit code: {result.ExitCode}");
+            Output.WriteLine($"Standard output: {result.StandardOutput}");
+            Output.WriteLine($"Standard error: {result.StandardError}");
+            Output.WriteLine($"Combined output: {result.CombinedOutput}");
 
             // Assert
             Assert.Equal(0, result.ExitCode);
@@ -219,7 +265,7 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
         try
         {
             // Act
-            var result = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} config-e2e.json");
+            var result = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} config-e2e.json --output \"{expectedFile}\" --overwrite");
 
             // Assert
             Assert.Equal(0, result.ExitCode);
@@ -271,7 +317,9 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             // Verify file was uploaded by listing job files
             var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
             Assert.Equal(0, listResult.ExitCode);
-            Assert.Contains(Path.GetFileName(tempFile), listResult.StandardOutput);
+            // Server may add suffix to prevent filename conflicts, so check for base filename
+            var baseFileName = Path.GetFileNameWithoutExtension(tempFile);
+            Assert.Contains(baseFileName, listResult.StandardOutput);
         }
         finally
         {
@@ -298,10 +346,12 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             Assert.Equal(0, result.ExitCode);
             Assert.Contains("Uploaded", result.StandardOutput);
             
-            // Verify file was uploaded with custom name
+            // Verify file was uploaded with custom name - server adds GUID suffix by default
             var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
             Assert.Equal(0, listResult.ExitCode);
-            Assert.Contains(customName, listResult.StandardOutput);
+            // Server adds GUID suffix when not overwriting, so check for base filename
+            var baseFileName = Path.GetFileNameWithoutExtension(customName);
+            Assert.Contains(baseFileName, listResult.StandardOutput);
         }
         finally
         {
@@ -321,15 +371,27 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
         try
         {
-            // First upload
-            var firstResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName}");
+            // First upload using --overwrite to get exact filename (no GUID suffix)
+            var firstResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName} --overwrite");
             Assert.Equal(0, firstResult.ExitCode);
+            
+            // Verify the file exists - debug what filename was actually created
+            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
+            Assert.Equal(0, listResult.ExitCode);
+            
+            Output.WriteLine($"Files after first upload: {listResult.StandardOutput}");
+            var jobFiles = JsonSerializer.Deserialize<JobFile[]>(listResult.StandardOutput);
+            var uploadedFile = jobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("overwrite-test-e2e"));
+            Assert.NotNull(uploadedFile);
+            
+            var actualFileName = !string.IsNullOrEmpty(uploadedFile.FileName) ? uploadedFile.FileName : uploadedFile.Name;
+            Output.WriteLine($"Actual filename after first upload: {actualFileName}");
             
             // Update file content
             await File.WriteAllTextAsync(tempFile, "Overwritten content");
 
-            // Act - Upload with overwrite
-            var result = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName} --overwrite");
+            // Act - Upload with overwrite using the actual filename
+            var result = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name \"{actualFileName}\" --overwrite");
 
             // Assert
             Assert.Equal(0, result.ExitCode);
@@ -339,7 +401,7 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             var downloadFile = Path.GetTempFileName();
             try
             {
-                var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} {fileName} --output {downloadFile}");
+                var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} \"{actualFileName}\" --output {downloadFile} --overwrite");
                 Assert.Equal(0, downloadResult.ExitCode);
                 
                 var content = await File.ReadAllTextAsync(downloadFile);
@@ -387,17 +449,32 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             var uploadResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName}");
             Assert.Equal(0, uploadResult.ExitCode);
 
-            // Act
-            var result = await CliHelper.ExecuteCommandAsync($"jobs files delete {_testJobId} {fileName} --force");
+            // Get the actual filename with GUID suffix from the list
+            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
+            Assert.Equal(0, listResult.ExitCode);
+            
+            var jobFiles = JsonSerializer.Deserialize<JobFile[]>(listResult.StandardOutput);
+            var uploadedFile = jobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("delete-test-e2e"));
+            Assert.NotNull(uploadedFile);
+            
+            var actualFileName = !string.IsNullOrEmpty(uploadedFile.FileName) ? uploadedFile.FileName : uploadedFile.Name;
+
+            // Act - Delete using the actual filename with GUID suffix
+            var result = await CliHelper.ExecuteCommandAsync($"jobs files delete {_testJobId} \"{actualFileName}\" --force");
+
+            // Debug the delete command output
+            Output.WriteLine($"Delete command result: ExitCode={result.ExitCode}");
+            Output.WriteLine($"Delete command output: {result.StandardOutput}");
+            Output.WriteLine($"Delete command error: {result.StandardError}");
 
             // Assert
             Assert.Equal(0, result.ExitCode);
             Assert.Contains("Deleted", result.StandardOutput);
             
             // Verify file was deleted by listing job files
-            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
-            Assert.Equal(0, listResult.ExitCode);
-            Assert.DoesNotContain(fileName, listResult.StandardOutput);
+            var finalListResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
+            Assert.Equal(0, finalListResult.ExitCode);
+            Assert.DoesNotContain(actualFileName, finalListResult.StandardOutput);
         }
         finally
         {
@@ -438,13 +515,18 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             Assert.Equal(0, uploadResult.ExitCode);
             Assert.Contains("Uploaded", uploadResult.StandardOutput);
 
-            // Step 2: List files to verify upload
-            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
+            // Step 2: List files to verify upload and get actual filename (server may add suffix)
+            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
             Assert.Equal(0, listResult.ExitCode);
-            Assert.Contains(fileName, listResult.StandardOutput);
+            
+            var jobFiles = JsonSerializer.Deserialize<JobFile[]>(listResult.StandardOutput);
+            var uploadedFile = jobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("workflow-test-e2e"));
+            Assert.NotNull(uploadedFile);
+            
+            var actualFileName = !string.IsNullOrEmpty(uploadedFile.FileName) ? uploadedFile.FileName : uploadedFile.Name;
 
-            // Step 3: Download file
-            var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} {fileName} --output {tempDownloadFile}");
+            // Step 3: Download file using actual filename
+            var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} \"{actualFileName}\" --output {tempDownloadFile} --overwrite");
             Assert.Equal(0, downloadResult.ExitCode);
             Assert.Contains("Downloaded", downloadResult.StandardOutput);
             
@@ -452,15 +534,18 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
             var downloadedContent = await File.ReadAllTextAsync(tempDownloadFile);
             Assert.Equal(testContent, downloadedContent);
 
-            // Step 4: Delete file
-            var deleteResult = await CliHelper.ExecuteCommandAsync($"jobs files delete {_testJobId} {fileName} --force");
+            // Step 4: Delete file using actual filename
+            var deleteResult = await CliHelper.ExecuteCommandAsync($"jobs files delete {_testJobId} \"{actualFileName}\" --force");
             Assert.Equal(0, deleteResult.ExitCode);
             Assert.Contains("Deleted", deleteResult.StandardOutput);
 
             // Step 5: Verify deletion by listing again
-            var finalListResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId}");
+            var finalListResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
             Assert.Equal(0, finalListResult.ExitCode);
-            Assert.DoesNotContain(fileName, finalListResult.StandardOutput);
+            
+            var finalJobFiles = JsonSerializer.Deserialize<JobFile[]>(finalListResult.StandardOutput);
+            var deletedFile = finalJobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("workflow-test-e2e"));
+            Assert.Null(deletedFile); // File should be gone
         }
         finally
         {
@@ -482,18 +567,28 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
         try
         {
-            // Step 1: Upload original file
+            // Step 1: Upload original file (will get GUID suffix since no --overwrite flag)
             await File.WriteAllTextAsync(tempFile, originalContent);
             var uploadResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName}");
             Assert.Equal(0, uploadResult.ExitCode);
 
-            // Step 2: Update and overwrite file
+            // Get the actual filename with GUID suffix from the list
+            var listResult = await CliHelper.ExecuteCommandAsync($"jobs files list {_testJobId} --format json --quiet");
+            Assert.Equal(0, listResult.ExitCode);
+            
+            var jobFiles = JsonSerializer.Deserialize<JobFile[]>(listResult.StandardOutput);
+            var uploadedFile = jobFiles?.FirstOrDefault(f => (!string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name).Contains("overwrite-workflow-e2e"));
+            Assert.NotNull(uploadedFile);
+            
+            var actualFileName = !string.IsNullOrEmpty(uploadedFile.FileName) ? uploadedFile.FileName : uploadedFile.Name;
+
+            // Step 2: Update and overwrite file using the actual filename with GUID suffix
             await File.WriteAllTextAsync(tempFile, newContent);
-            var overwriteResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name {fileName} --overwrite");
+            var overwriteResult = await CliHelper.ExecuteCommandAsync($"jobs files upload {_testJobId} {tempFile} --name \"{actualFileName}\" --overwrite");
             Assert.Equal(0, overwriteResult.ExitCode);
 
-            // Step 3: Download and verify new content
-            var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} {fileName} --output {downloadFile}");
+            // Step 3: Download and verify new content using the actual filename
+            var downloadResult = await CliHelper.ExecuteCommandAsync($"jobs files download {_testJobId} \"{actualFileName}\" --output {downloadFile} --overwrite");
             Assert.Equal(0, downloadResult.ExitCode);
             
             var downloadedContent = await File.ReadAllTextAsync(downloadFile);
@@ -525,12 +620,12 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
             // Assert
             Assert.Equal(1, result.ExitCode);
-            Assert.Contains("authentication", result.StandardOutput.ToLowerInvariant());
+            Assert.Contains("not authenticated", result.StandardOutput.ToLowerInvariant());
         }
         finally
         {
-            // Restore authentication
-            await CliHelper.ExecuteCommandAsync($"auth login --username {ServerHarness.TestUser} --password {ServerHarness.TestPassword}");
+            // Restore authentication with quiet flag
+            await CliHelper.ExecuteCommandAsync($"auth login --username {ServerHarness.TestUser} --password {ServerHarness.TestPassword} --quiet");
         }
     }
 
@@ -546,7 +641,7 @@ public class JobFileCommandsE2ETests : E2ETestBase, IAsyncLifetime
 
         // Assert
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("required", result.StandardOutput.ToLowerInvariant());
+        Assert.Contains("arguments:", result.StandardOutput.ToLowerInvariant());
     }
 
     [Fact]

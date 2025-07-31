@@ -123,8 +123,10 @@ public abstract class BaseCommand : Command
     /// </summary>
     protected static void WriteOutput(InvocationContext context, string message)
     {
-        // Write to AnsiConsole for rich UI
-        AnsiConsole.WriteLine(message);
+        // Write raw output directly to standard output stream to bypass all console abstractions
+        using var stdout = System.Console.OpenStandardOutput();
+        using var writer = new System.IO.StreamWriter(stdout) { AutoFlush = true };
+        writer.WriteLine(message);
         
         // Also write to System.CommandLine console for test capture
         context.Console.WriteLine(message);
@@ -254,7 +256,8 @@ public abstract class AuthenticatedCommand : BaseCommand
         }
         
         apiClient.SetAuthToken(token);
-        WriteInfo($"Token set on ApiClient for profile '{profile}'");
+        // Suppress token message to avoid contaminating JSON output
+        // WriteInfo($"Token set on ApiClient for profile '{profile}'");
 
         return await ExecuteAuthenticatedAsync(context, profile, apiClient);
     }

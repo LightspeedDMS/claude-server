@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -28,8 +30,13 @@ public class RepositoryFileCommandsIntegrationTests : IAsyncLifetime
         _testServer = testServer;
         _mockAuthService = new Mock<IAuthService>();
         
-        // Create real API client pointing to test server
-        var httpClient = new HttpClient();
+        // Create real API client pointing to test server with SSL certificate bypass
+        var handler = new HttpClientHandler()
+        {
+            ClientCertificateOptions = ClientCertificateOption.Manual,
+            ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErrors) => true
+        };
+        var httpClient = new HttpClient(handler);
         var mockLogger = new Mock<ILogger<ApiClient>>();
         var options = Options.Create(new ApiClientOptions
         {

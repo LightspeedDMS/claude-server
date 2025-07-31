@@ -414,6 +414,72 @@ public class JobService : IJobService, IJobStatusCallback
         };
     }
 
+    public async Task DeleteFileAsync(Guid jobId, string username, string filename)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            throw new ArgumentException("Job not found");
+
+        if (job.Username != username)
+            throw new UnauthorizedAccessException("Access denied");
+
+        var stagingPath = _jobPersistenceService.GetJobStagingPath(jobId);
+        var fullPath = Path.Combine(stagingPath, filename);
+
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException($"File '{filename}' not found in job");
+
+        File.Delete(fullPath);
+
+        // Remove from uploaded files list if it exists there (using original filename)
+        // Try to find the original filename by removing GUID suffix pattern
+        var baseFileName = filename;
+        var match = System.Text.RegularExpressions.Regex.Match(filename, @"^(.+)_[a-fA-F0-9]{8}(\..+)?$");
+        if (match.Success)
+        {
+            baseFileName = match.Groups[1].Value + (match.Groups[2].Success ? match.Groups[2].Value : "");
+        }
+        
+        if (job.UploadedFiles.Contains(baseFileName))
+        {
+            job.UploadedFiles.Remove(baseFileName);
+        }
+
+        // Persist job updates
+        await _jobPersistenceService.SaveJobAsync(job);
+        
+        _logger.LogInformation("Deleted file {Filename} from staging area for job {JobId}", filename, jobId);
+    }
+
+    public Task<List<Models.FileInfo>> GetJobFilesAsync(Guid jobId, string username)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+            throw new ArgumentException("Job not found");
+
+        if (job.Username != username)
+            throw new UnauthorizedAccessException("Access denied");
+
+        var stagingPath = _jobPersistenceService.GetJobStagingPath(jobId);
+        var files = new List<Models.FileInfo>();
+
+        if (Directory.Exists(stagingPath))
+        {
+            var fileInfos = new DirectoryInfo(stagingPath).GetFiles();
+            foreach (var fileInfo in fileInfos)
+            {
+                files.Add(new Models.FileInfo
+                {
+                    Name = fileInfo.Name,
+                    Type = Path.GetExtension(fileInfo.Name),
+                    Path = $"/staging/jobs/{jobId}/files/{fileInfo.Name}",
+                    Size = fileInfo.Length,
+                    Modified = fileInfo.LastWriteTime
+                });
+            }
+        }
+
+        return Task.FromResult(files);
+    }
+
     public async Task ProcessJobQueueAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -765,48 +831,26 @@ public class JobService : IJobService, IJobStatusCallback
     {
         try
         {
-            _logger.LogInformation("Cleaning up cidx container for job {JobId}", job.Id);
+            _logger.LogInformation("Running cidx uninstall for job {JobId} to clean up containers and root-owned data", job.Id);
             
-            // CRITICAL: Use --force-docker flag for Docker compatibility
-            string cidxArgs = "stop";
-            var dockerContainerCommands = new[] { "start", "stop", "uninstall" };
-            var needsForceDocker = dockerContainerCommands.Any(cmd => cidxArgs.StartsWith(cmd + " ") || cidxArgs == cmd);
+            // Use the same uninstall logic as manual job deletion for consistency
+            var uninstallResult = await _claudeExecutor.UninstallCidxAsync(job.CowPath, job.Username, CancellationToken.None);
             
-            if (needsForceDocker && !cidxArgs.Contains("--force-docker"))
+            if (uninstallResult.ExitCode == 0)
             {
-                cidxArgs = $"{cidxArgs} --force-docker";
-                _logger.LogInformation("DOCKER COMPATIBILITY: Adding --force-docker flag to cidx command: stop -> {FinalCommand}", cidxArgs);
-            }
-            
-            var processInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "cidx",
-                Arguments = cidxArgs,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = job.CowPath
-            };
-
-            using var process = new System.Diagnostics.Process { StartInfo = processInfo };
-            process.Start();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode == 0)
-            {
-                job.CidxStatus = "stopped";
-                _logger.LogInformation("Successfully stopped cidx container for job {JobId}", job.Id);
+                job.CidxStatus = "uninstalled";
+                _logger.LogInformation("Successfully ran cidx uninstall for job {JobId}", job.Id);
             }
             else
             {
-                _logger.LogWarning("Failed to stop cidx container for job {JobId} with exit code {ExitCode}", 
-                    job.Id, process.ExitCode);
+                _logger.LogWarning("Failed to run cidx uninstall for job {JobId}: {Output}", job.Id, uninstallResult.Output);
+                // Continue with cleanup even if cidx uninstall fails
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cleaning up cidx container for job {JobId}", job.Id);
+            _logger.LogError(ex, "Error running cidx uninstall for job {JobId}, continuing with cleanup", job.Id);
+            // Continue with cleanup even if cidx uninstall fails
         }
     }
 

@@ -44,6 +44,7 @@ public class JobFilesListCommand : AuthenticatedCommand
 {
     private readonly Argument<string> _jobIdArgument;
     private readonly Option<string> _formatOption;
+    private readonly Option<bool> _quietOption;
 
     public JobFilesListCommand() : base("list", """
         List files in a job workspace
@@ -73,14 +74,22 @@ public class JobFilesListCommand : AuthenticatedCommand
             getDefaultValue: () => "table"
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_jobIdArgument);
         AddOption(_formatOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         // Resolve partial job ID if needed
@@ -93,7 +102,10 @@ public class JobFilesListCommand : AuthenticatedCommand
 
         try
         {
-            WriteInfo($"Listing files in job '{fullJobId[..8]}'...");
+            if (!quiet)
+            {
+                WriteInfo($"Listing files in job '{fullJobId[..8]}'...");
+            }
             
             var files = await apiClient.GetJobFilesAsync(fullJobId, cancellationToken);
             
@@ -119,32 +131,52 @@ public class JobFilesListCommand : AuthenticatedCommand
             // Try as full GUID first
             if (Guid.TryParse(partialId, out _))
             {
-                await apiClient.GetJobAsync(partialId, cancellationToken);
-                return partialId;
+                try
+                {
+                    await apiClient.GetJobAsync(partialId, cancellationToken);
+                    return partialId;
+                }
+                catch (Exception ex)
+                {
+                    WriteError($"Failed to verify job '{partialId}': {ex.Message}");
+                    return null;
+                }
             }
 
             // Search for partial match
-            var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
-            var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
-
-            if (matches.Count == 0)
-                return null;
-
-            if (matches.Count > 1)
+            try
             {
-                WriteWarning($"Multiple jobs found matching '{partialId}':");
-                foreach (var match in matches.Take(5))
+                var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
+                var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (matches.Count == 0)
                 {
-                    WriteInfo($"  {match.JobId} - {match.Repository} ({match.Status})");
+                    WriteError($"No jobs found matching '{partialId}'");
+                    return null;
                 }
-                WriteError("Please provide a more specific job ID");
+
+                if (matches.Count > 1)
+                {
+                    WriteWarning($"Multiple jobs found matching '{partialId}':");
+                    foreach (var match in matches.Take(5))
+                    {
+                        WriteInfo($"  {match.JobId} - {match.Repository} ({match.Status})");
+                    }
+                    WriteError("Please provide a more specific job ID");
+                    return null;
+                }
+
+                return matches[0].JobId.ToString();
+            }
+            catch (Exception ex)
+            {
+                WriteError($"Failed to search for jobs matching '{partialId}': {ex.Message}");
                 return null;
             }
-
-            return matches[0].JobId.ToString();
         }
-        catch
+        catch (Exception ex)
         {
+            WriteError($"Unexpected error in job resolution: {ex.Message}");
             return null;
         }
     }
@@ -177,12 +209,14 @@ public class JobFilesListCommand : AuthenticatedCommand
                 table.AddColumn("Size");
                 table.AddColumn("Created");
 
-                foreach (var file in files.OrderBy(f => f.FileName))
+                foreach (var file in files.OrderBy(f => !string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name))
                 {
                     var size = FormatFileSize(file.Size);
                     var created = file.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
                     
-                    table.AddRow(file.FileName, size, created);
+                    // Use FileName if not empty, otherwise use Name
+                    var displayName = !string.IsNullOrEmpty(file.FileName) ? file.FileName : file.Name;
+                    table.AddRow(displayName, size, created);
                 }
 
                 AnsiConsole.Write(table);
@@ -205,6 +239,7 @@ public class JobFilesUploadCommand : AuthenticatedCommand
     private readonly Argument<string> _localFileArgument;
     private readonly Option<string> _nameOption;
     private readonly Option<bool> _overwriteOption;
+    private readonly Option<bool> _quietOption;
 
     public JobFilesUploadCommand() : base("upload", """
         Upload a file to a job workspace
@@ -244,10 +279,17 @@ public class JobFilesUploadCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_jobIdArgument);
         AddArgument(_localFileArgument);
         AddOption(_nameOption);
         AddOption(_overwriteOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -256,6 +298,7 @@ public class JobFilesUploadCommand : AuthenticatedCommand
         var localFilePath = context.ParseResult.GetValueForArgument(_localFileArgument);
         var customName = context.ParseResult.GetValueForOption(_nameOption);
         var overwrite = context.ParseResult.GetValueForOption(_overwriteOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         // Check if local file exists
@@ -275,7 +318,10 @@ public class JobFilesUploadCommand : AuthenticatedCommand
 
         try
         {
-            WriteInfo($"Uploading '{localFilePath}' to job '{fullJobId[..8]}'...");
+            if (!quiet)
+            {
+                WriteInfo($"Uploading '{localFilePath}' to job '{fullJobId[..8]}'...");
+            }
             
             var fileContent = await File.ReadAllBytesAsync(localFilePath, cancellationToken);
             var fileName = customName ?? Path.GetFileName(localFilePath);
@@ -288,10 +334,13 @@ public class JobFilesUploadCommand : AuthenticatedCommand
 
             var response = await apiClient.UploadSingleFileAsync(fullJobId, fileUpload, overwrite, cancellationToken);
             
-            WriteSuccess($"Uploaded '{fileName}' ({FormatFileSize(response.FileSize)})");
-            if (response.Overwritten)
+            if (!quiet)
             {
-                WriteInfo("File was overwritten");
+                WriteSuccess($"Uploaded '{fileName}' ({FormatFileSize(response.FileSize)})");
+                if (response.Overwritten)
+                {
+                    WriteInfo("File was overwritten");
+                }
             }
             return 0;
         }
@@ -314,18 +363,47 @@ public class JobFilesUploadCommand : AuthenticatedCommand
             // Try as full GUID first
             if (Guid.TryParse(partialId, out _))
             {
-                await apiClient.GetJobAsync(partialId, cancellationToken);
-                return partialId;
+                try
+                {
+                    await apiClient.GetJobAsync(partialId, cancellationToken);
+                    return partialId;
+                }
+                catch (Exception ex)
+                {
+                    WriteError($"Failed to verify job '{partialId}': {ex.Message}");
+                    return null;
+                }
             }
 
             // Search for partial match
-            var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
-            var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
+            try
+            {
+                var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
+                var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            return matches.Count == 1 ? matches[0].JobId.ToString() : null;
+                if (matches.Count == 0)
+                {
+                    WriteError($"No jobs found matching '{partialId}'");
+                    return null;
+                }
+
+                if (matches.Count > 1)
+                {
+                    WriteError($"Multiple jobs found matching '{partialId}' - please be more specific");
+                    return null;
+                }
+
+                return matches[0].JobId.ToString();
+            }
+            catch (Exception ex)
+            {
+                WriteError($"Failed to search for jobs matching '{partialId}': {ex.Message}");
+                return null;
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            WriteError($"Unexpected error in job resolution: {ex.Message}");
             return null;
         }
     }
@@ -466,18 +544,47 @@ public class JobFilesDownloadCommand : AuthenticatedCommand
             // Try as full GUID first
             if (Guid.TryParse(partialId, out _))
             {
-                await apiClient.GetJobAsync(partialId, cancellationToken);
-                return partialId;
+                try
+                {
+                    await apiClient.GetJobAsync(partialId, cancellationToken);
+                    return partialId;
+                }
+                catch (Exception ex)
+                {
+                    WriteError($"Failed to verify job '{partialId}': {ex.Message}");
+                    return null;
+                }
             }
 
             // Search for partial match
-            var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
-            var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
+            try
+            {
+                var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
+                var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            return matches.Count == 1 ? matches[0].JobId.ToString() : null;
+                if (matches.Count == 0)
+                {
+                    WriteError($"No jobs found matching '{partialId}'");
+                    return null;
+                }
+
+                if (matches.Count > 1)
+                {
+                    WriteError($"Multiple jobs found matching '{partialId}' - please be more specific");
+                    return null;
+                }
+
+                return matches[0].JobId.ToString();
+            }
+            catch (Exception ex)
+            {
+                WriteError($"Failed to search for jobs matching '{partialId}': {ex.Message}");
+                return null;
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            WriteError($"Unexpected error in job resolution: {ex.Message}");
             return null;
         }
     }
@@ -551,7 +658,11 @@ public class JobFilesDeleteCommand : AuthenticatedCommand
         {
             // Check if file exists first
             var files = await apiClient.GetJobFilesAsync(fullJobId, cancellationToken);
-            var targetFile = files.FirstOrDefault(f => f.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+            var targetFile = files.FirstOrDefault(f => 
+            {
+                var fileDisplayName = !string.IsNullOrEmpty(f.FileName) ? f.FileName : f.Name;
+                return fileDisplayName.Equals(fileName, StringComparison.OrdinalIgnoreCase);
+            });
             
             if (targetFile == null)
             {
@@ -574,10 +685,9 @@ public class JobFilesDeleteCommand : AuthenticatedCommand
 
             WriteInfo($"Deleting '{fileName}' from job '{fullJobId[..8]}'...");
             
-            // Note: This would require implementing a delete endpoint in the API
-            // For now, we'll simulate the operation
-            WriteWarning("File deletion not yet implemented in the API");
-            WriteSuccess($"File '{fileName}' would be deleted");
+            await apiClient.DeleteJobFileAsync(fullJobId, fileName, cancellationToken);
+            
+            WriteSuccess($"Deleted '{fileName}' from job '{fullJobId[..8]}'");
             return 0;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
@@ -599,18 +709,47 @@ public class JobFilesDeleteCommand : AuthenticatedCommand
             // Try as full GUID first
             if (Guid.TryParse(partialId, out _))
             {
-                await apiClient.GetJobAsync(partialId, cancellationToken);
-                return partialId;
+                try
+                {
+                    await apiClient.GetJobAsync(partialId, cancellationToken);
+                    return partialId;
+                }
+                catch (Exception ex)
+                {
+                    WriteError($"Failed to verify job '{partialId}': {ex.Message}");
+                    return null;
+                }
             }
 
             // Search for partial match
-            var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
-            var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
+            try
+            {
+                var jobs = await apiClient.GetJobsAsync(new CliJobFilter { Limit = 100 }, cancellationToken);
+                var matches = jobs.Where(j => j.JobId.ToString().StartsWith(partialId, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            return matches.Count == 1 ? matches[0].JobId.ToString() : null;
+                if (matches.Count == 0)
+                {
+                    WriteError($"No jobs found matching '{partialId}'");
+                    return null;
+                }
+
+                if (matches.Count > 1)
+                {
+                    WriteError($"Multiple jobs found matching '{partialId}' - please be more specific");
+                    return null;
+                }
+
+                return matches[0].JobId.ToString();
+            }
+            catch (Exception ex)
+            {
+                WriteError($"Failed to search for jobs matching '{partialId}': {ex.Message}");
+                return null;
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            WriteError($"Unexpected error in job resolution: {ex.Message}");
             return null;
         }
     }

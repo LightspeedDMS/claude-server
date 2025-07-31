@@ -161,7 +161,7 @@ public static class ModernDisplay
     /// <summary>
     /// Display repositories in clean format
     /// </summary>
-    public static void DisplayRepositories(IEnumerable<RepositoryInfo> repositories, string format = "table")
+    public static void DisplayRepositories(IEnumerable<RepositoryInfo> repositories, string format = "table", bool quiet = false)
     {
         var repoList = repositories.ToList();
         
@@ -182,8 +182,11 @@ public static class ModernDisplay
             default:
                 if (!repoList.Any())
                 {
-                    AnsiConsole.MarkupLine("[yellow]No repositories found.[/]");
-                    AnsiConsole.MarkupLine("[grey]Use 'claude-server repos create' to add a repository.[/]");
+                    if (!quiet)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]No repositories found.[/]");
+                        AnsiConsole.MarkupLine("[grey]Use 'claude-server repos create' to add a repository.[/]");
+                    }
                     return;
                 }
 
@@ -214,7 +217,10 @@ public static class ModernDisplay
                     );
                 }
 
-                AnsiConsole.Write(table);
+                if (!quiet)
+                {
+                    AnsiConsole.Write(table);
+                }
                 break;
         }
     }

@@ -130,10 +130,11 @@ show_help() {
     echo -e "    ${GREEN}test${NC}            - Test mode"
     echo ""
     echo -e "${YELLOW}TEST OPTIONS:${NC}"
-    echo -e "    ${GREEN}unit${NC}            - Run unit tests"
-    echo -e "    ${GREEN}integration${NC}     - Run integration tests"
-    echo -e "    ${GREEN}e2e${NC}             - Run E2E tests (Playwright)"
-    echo -e "    ${GREEN}all${NC}             - Run all tests"
+    echo -e "    ${GREEN}unit${NC}            - Run unit tests (as suites - fast)"
+    echo -e "    ${GREEN}integration${NC}     - Run integration tests (as suites with timeout handling)"
+    echo -e "    ${GREEN}e2e${NC}             - Run E2E tests (individually - systematic approach)"
+    echo -e "    ${GREEN}all${NC}             - Run all tests (unit → integration → e2e)"
+    echo -e "    ${GREEN}playwright${NC}      - Run Playwright E2E tests (separate web UI tests)"
     echo ""
     echo -e "${YELLOW}DOCKER OPTIONS:${NC}"
     echo -e "    ${GREEN}up${NC}              - Start Docker containers"
@@ -161,9 +162,11 @@ show_help() {
     echo "    ./run.sh stop server             # Stop server processes"
     echo "    ./run.sh stop web                # Stop web UI processes"
     echo "    ./run.sh stop all                # Stop all services"
-    echo "    ./run.sh test unit               # Run unit tests"
-    echo "    ./run.sh test e2e                # Run E2E tests"
-    echo "    ./run.sh test all                # Run all tests"
+    echo "    ./run.sh test unit               # Run unit tests (fast, as suites)"
+    echo "    ./run.sh test integration        # Run integration tests (with timeouts)"
+    echo "    ./run.sh test e2e                # Run E2E tests (individually, systematic)"
+    echo "    ./run.sh test all                # Run all tests in sequence"
+    echo "    ./run.sh test playwright         # Run Playwright web UI tests"
     echo "    ./run.sh docker up               # Start with Docker"
     echo "    ./run.sh install                 # Install system dependencies (development mode)"
     echo "    ./run.sh install --production    # Install with nginx, SSL, and firewall"
@@ -396,29 +399,36 @@ start_both() {
     log "One of the services stopped, initiating cleanup..."
 }
 
-# Run tests
+# Run tests using the comprehensive test-runner.sh script
 run_tests() {
     local test_type="${1:-all}"
     
-    log "Running $test_type tests..."
+    log "Running $test_type tests using systematic test runner..."
+    
+    # Check if the test-runner.sh script exists
+    local test_runner_script="$PROJECT_ROOT/claude-batch-server/test-runner.sh"
+    if [[ ! -f "$test_runner_script" ]]; then
+        error "Test runner script not found: $test_runner_script"
+        log "Please ensure the test-runner.sh script is present in the claude-batch-server directory"
+        exit 1
+    fi
+    
+    # Make sure the script is executable
+    chmod +x "$test_runner_script"
+    
+    # Set required environment variables for the test runner
+    export PATH="$HOME/.dotnet:$PATH"
+    export TEST_USERNAME="${TEST_USERNAME:-jsbattig}"
+    export TEST_PASSWORD="${TEST_PASSWORD:-TestPassword123!}"
     
     case "$test_type" in
-        "unit")
+        "unit"|"integration"|"e2e"|"all")
+            # Use the systematic test runner
             cd "$PROJECT_ROOT/claude-batch-server"
-            export PATH="$HOME/.dotnet:$PATH"
-            dotnet test tests/ClaudeBatchServer.Tests/ClaudeBatchServer.Tests.csproj --configuration Release --verbosity normal
+            "$test_runner_script" "$test_type"
             ;;
-        "integration")
-            cd "$PROJECT_ROOT/claude-batch-server"
-            export PATH="$HOME/.dotnet:$PATH"
-            
-            # Set test environment variables
-            export TEST_USERNAME="${TEST_USERNAME:-jsbattig}"
-            export TEST_PASSWORD="${TEST_PASSWORD:-TestPassword123!}"
-            
-            dotnet test tests/ClaudeBatchServer.IntegrationTests/ClaudeBatchServer.IntegrationTests.csproj --configuration Release --verbosity normal
-            ;;
-        "e2e")
+        "playwright")
+            # Keep original Playwright E2E tests as a separate option
             cd "$PROJECT_ROOT/claude-web-ui"
             
             # Ensure Playwright is installed
@@ -429,14 +439,9 @@ run_tests() {
             
             npm run test:e2e
             ;;
-        "all")
-            log "Running all tests in sequence..."
-            run_tests "unit"
-            run_tests "integration"
-            run_tests "e2e"
-            ;;
         *)
             error "Unknown test type: $test_type"
+            log "Available options: unit, integration, e2e, all, playwright"
             exit 1
             ;;
     esac

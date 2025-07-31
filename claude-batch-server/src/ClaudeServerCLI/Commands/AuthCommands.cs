@@ -42,6 +42,7 @@ public class LoginCommand : BaseCommand
     private readonly Option<string> _passwordOption;
     private readonly Option<string> _profileOption;
     private readonly Option<bool> _hashedPasswordOption;
+    private readonly Option<bool> _quietOption;
 
     public LoginCommand() : base("login", """
         Login to the Claude Batch Server with username and password
@@ -58,6 +59,9 @@ public class LoginCommand : BaseCommand
           
           # Login with pre-hashed password
           claude-server auth login -u admin -p $2b$12$hashedpassword --hashed
+          
+          # Quiet mode (for testing/automation)
+          claude-server auth login -u admin -p mypassword --quiet
         """)
     {
         _usernameOption = new Option<string>(
@@ -82,10 +86,17 @@ public class LoginCommand : BaseCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation).",
+            getDefaultValue: () => false
+        );
+
         AddOption(_usernameOption);
         AddOption(_passwordOption);
         AddOption(_profileOption);
         AddOption(_hashedPasswordOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteInternalAsync(InvocationContext context)
@@ -94,47 +105,76 @@ public class LoginCommand : BaseCommand
         var password = context.ParseResult.GetValueForOption(_passwordOption)!;
         var profile = context.ParseResult.GetValueForOption(_profileOption) ?? "default";
         var isHashedPassword = context.ParseResult.GetValueForOption(_hashedPasswordOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
 
         var authService = GetRequiredService<IAuthService>(context);
 
-        // Check server health first
-        if (!await CheckServerHealthAsync(context))
+        // Check server health first (skip ANSI output if quiet)
+        if (!quiet && !await CheckServerHealthAsync(context))
         {
             return 1;
         }
-
-        WriteInfo($"Logging in as '{username}' using profile '{profile}'...");
-
-        var progressTask = AnsiConsole.Progress()
-            .AutoClear(false)
-            .HideCompleted(false)
-            .Start(ctx =>
-            {
-                var task = ctx.AddTask("[green]Authenticating...[/]", autoStart: true);
-                
-                var loginTask = authService.LoginAsync(username, password, isHashedPassword, profile, context.GetCancellationToken());
-                loginTask.Wait();
-                
-                task.StopTask();
-                return loginTask.Result;
-            });
-
-        if (progressTask)
+        else if (quiet)
         {
-            WriteSuccess($"Successfully logged in as '{username}' using profile '{profile}'");
-            
-            // Show current user info
-            var currentUser = await authService.GetCurrentUserAsync(profile, context.GetCancellationToken());
-            if (!string.IsNullOrEmpty(currentUser))
+            // Silent health check for quiet mode
+            var apiClient = GetRequiredService<IApiClient>(context);
+            if (!await apiClient.IsServerHealthyAsync())
             {
-                WriteInfo($"Authenticated as: {currentUser}");
+                return 1;
+            }
+        }
+
+        if (!quiet)
+        {
+            WriteInfo($"Logging in as '{username}' using profile '{profile}'...");
+        }
+
+        bool loginResult;
+        if (quiet)
+        {
+            // Direct login without progress bar in quiet mode
+            loginResult = await authService.LoginAsync(username, password, isHashedPassword, profile, context.GetCancellationToken());
+        }
+        else
+        {
+            // Show progress bar in normal mode
+            loginResult = AnsiConsole.Progress()
+                .AutoClear(false)
+                .HideCompleted(false)
+                .Start(ctx =>
+                {
+                    var task = ctx.AddTask("[green]Authenticating...[/]", autoStart: true);
+                    
+                    var loginTask = authService.LoginAsync(username, password, isHashedPassword, profile, context.GetCancellationToken());
+                    loginTask.Wait();
+                    
+                    task.StopTask();
+                    return loginTask.Result;
+                });
+        }
+
+        if (loginResult)
+        {
+            if (!quiet)
+            {
+                WriteSuccess($"Successfully logged in as '{username}' using profile '{profile}'");
+                
+                // Show current user info
+                var currentUser = await authService.GetCurrentUserAsync(profile, context.GetCancellationToken());
+                if (!string.IsNullOrEmpty(currentUser))
+                {
+                    WriteInfo($"Authenticated as: {currentUser}");
+                }
             }
             
             return 0;
         }
         else
         {
-            WriteError("Login failed. Please check your credentials and try again.");
+            if (!quiet)
+            {
+                WriteError("Login failed. Please check your credentials and try again.");
+            }
             return 1;
         }
     }
@@ -143,6 +183,7 @@ public class LoginCommand : BaseCommand
 public class LogoutCommand : BaseCommand
 {
     private readonly Option<string> _profileOption;
+    private readonly Option<bool> _quietOption;
 
     public LogoutCommand() : base("logout", "Logout from the Claude Batch Server")
     {
@@ -152,33 +193,53 @@ public class LogoutCommand : BaseCommand
             getDefaultValue: () => "default"
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation).",
+            getDefaultValue: () => false
+        );
+
         AddOption(_profileOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteInternalAsync(InvocationContext context)
     {
         var profile = context.ParseResult.GetValueForOption(_profileOption) ?? "default";
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var authService = GetRequiredService<IAuthService>(context);
 
         // Check if already logged out
         if (!await authService.IsAuthenticatedAsync(profile, context.GetCancellationToken()))
         {
-            WriteWarning($"Not currently authenticated for profile '{profile}'");
+            if (!quiet)
+            {
+                WriteWarning($"Not currently authenticated for profile '{profile}'");
+            }
             return 0;
         }
 
-        WriteInfo($"Logging out from profile '{profile}'...");
+        if (!quiet)
+        {
+            WriteInfo($"Logging out from profile '{profile}'...");
+        }
 
         var success = await authService.LogoutAsync(profile, context.GetCancellationToken());
 
         if (success)
         {
-            WriteSuccess($"Successfully logged out from profile '{profile}'");
+            if (!quiet)
+            {
+                WriteSuccess($"Successfully logged out from profile '{profile}'");
+            }
             return 0;
         }
         else
         {
-            WriteError("Logout failed");
+            if (!quiet)
+            {
+                WriteError("Logout failed");
+            }
             return 1;
         }
     }

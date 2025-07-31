@@ -44,7 +44,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
             return new LoginResponse
             {
                 Token = token,
-                User = user.Username,
+                Username = user.Username,
                 Expires = expiry
             };
         }

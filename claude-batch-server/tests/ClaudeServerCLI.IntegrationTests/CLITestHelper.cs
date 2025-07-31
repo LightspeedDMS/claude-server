@@ -43,7 +43,7 @@ public class CLITestHelper
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"\"{_cliPath}\" --server-url {_serverHarness.ServerUrl} {arguments}",
+            Arguments = $"\"{_cliPath}\" --server-url \"{_serverHarness.ServerUrl}\" {arguments}",
             WorkingDirectory = Path.GetTempPath(),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -133,8 +133,9 @@ public class CLITestHelper
     /// </summary>
     public async Task<bool> LoginAsync()
     {
-        var result = await ExecuteCommandAsync($"auth login --username {_serverHarness.TestUser} --password {_serverHarness.TestPassword}");
-        return result.Success && result.CombinedOutput.Contains("success", StringComparison.OrdinalIgnoreCase);
+        // Use --quiet flag to suppress ANSI output that contaminates JSON in tests
+        var result = await ExecuteCommandAsync($"auth login --username {_serverHarness.TestUser} --password {_serverHarness.TestPassword} --quiet");
+        return result.Success;
     }
 
     /// <summary>
@@ -142,8 +143,9 @@ public class CLITestHelper
     /// </summary>
     public async Task<bool> LogoutAsync()
     {
-        var result = await ExecuteCommandAsync("auth logout");
-        return result.Success || result.CombinedOutput.Contains("logged out", StringComparison.OrdinalIgnoreCase);
+        // Use --quiet flag to suppress ANSI output that contaminates JSON in tests
+        var result = await ExecuteCommandAsync("auth logout --quiet");
+        return result.Success;
     }
 
     /// <summary>

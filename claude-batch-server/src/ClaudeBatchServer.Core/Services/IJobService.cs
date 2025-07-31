@@ -14,5 +14,7 @@ public interface IJobService
     Task<List<JobListResponse>> GetUserJobsAsync(string username);
     Task<ImageUploadResponse> UploadImageAsync(Guid jobId, string username, string filename, Stream imageStream);
     Task<FileUploadResponse> UploadFileAsync(Guid jobId, string username, string filename, Stream fileStream, bool overwrite = false);
+    Task DeleteFileAsync(Guid jobId, string username, string filename);
+    Task<List<Models.FileInfo>> GetJobFilesAsync(Guid jobId, string username);
     Task ProcessJobQueueAsync(CancellationToken cancellationToken);
 }

@@ -825,6 +825,18 @@ Prompt to summarize:
                 WorkingDirectory = repositoryPath ?? Environment.CurrentDirectory // Set working directory to repository context
             };
 
+            // CRITICAL: Inherit essential environment variables so claude command can be found and run properly
+            // When UseShellExecute = false, environment variables must be explicitly passed
+            var essentialEnvVars = new[] { "PATH", "HOME", "USER", "NODE_PATH", "NVM_DIR", "ANTHROPIC_API_KEY" };
+            foreach (var envVar in essentialEnvVars)
+            {
+                var value = Environment.GetEnvironmentVariable(envVar);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    processInfo.EnvironmentVariables[envVar] = value;
+                }
+            }
+
             using var process = new Process { StartInfo = processInfo };
             
             var outputBuilder = new StringBuilder();
@@ -873,14 +885,14 @@ Prompt to summarize:
             }
             else
             {
-                _logger.LogWarning("Failed to generate job title, using fallback. Exit code: {ExitCode}, Error: {Error}", 
-                    process.ExitCode, error);
+                _logger.LogError("CRITICAL: Failed to generate job title - Claude command failed! Exit code: {ExitCode}, Error: {Error}, Output: {Output}", 
+                    process.ExitCode, error, output);
                 return GenerateFallbackTitle(prompt);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating job title, using fallback");
+            _logger.LogError(ex, "CRITICAL: Error generating job title - Claude command execution failed! Check if claude command is available in PATH and properly configured");
             return GenerateFallbackTitle(prompt);
         }
     }

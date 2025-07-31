@@ -49,6 +49,7 @@ public class RepositoryFilesListCommand : AuthenticatedCommand
     private readonly Argument<string> _repositoryArgument;
     private readonly Option<string> _pathOption;
     private readonly Option<string> _formatOption;
+    private readonly Option<bool> _quietOption;
 
     public RepositoryFilesListCommand() : base("list", """
         List files and directories in a repository
@@ -86,9 +87,16 @@ public class RepositoryFilesListCommand : AuthenticatedCommand
             getDefaultValue: () => "table"
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_repositoryArgument);
         AddOption(_pathOption);
         AddOption(_formatOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -96,15 +104,20 @@ public class RepositoryFilesListCommand : AuthenticatedCommand
         var repository = context.ParseResult.GetValueForArgument(_repositoryArgument);
         var path = context.ParseResult.GetValueForOption(_pathOption);
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         try
         {
-            WriteInfo($"Listing files in repository '{repository}'{(path != null ? $" at path '{path}'" : "")}...");
+            // Only show progress info when not in quiet mode
+            if (!quiet)
+            {
+                WriteInfo($"Listing files in repository '{repository}'{(path != null ? $" at path '{path}'" : "")}...");
+            }
             
             var files = await apiClient.GetRepositoryFilesAsync(repository, path, cancellationToken);
             
-            DisplayFiles(files, format);
+            DisplayFiles(files, format, context);
             return 0;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
@@ -120,19 +133,24 @@ public class RepositoryFilesListCommand : AuthenticatedCommand
         }
     }
 
-    private static void DisplayFiles(IEnumerable<FileInfoResponse> files, string format)
+    private void DisplayFiles(IEnumerable<FileInfoResponse> files, string format, InvocationContext context)
     {
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
-                Console.WriteLine(json);
+                // Simple direct JSON serialization without any Spectre.Console involvement
+                var filesList = files.ToList(); // Ensure enumeration is materialized
+                var json = JsonSerializer.Serialize(filesList, new JsonSerializerOptions { WriteIndented = true });
+                
+                // Write directly to context console only (for test capture)
+                context.Console.WriteLine(json);
                 break;
                 
             case "yaml":
                 var serializer = new SerializerBuilder().Build();
                 var yaml = serializer.Serialize(files);
-                Console.WriteLine(yaml);
+                // Use WriteOutput to properly handle both console and test capture without markup parsing
+                WriteOutput(context, yaml);
                 break;
                 
             case "table":
@@ -176,6 +194,7 @@ public class RepositoryFilesShowCommand : AuthenticatedCommand
     private readonly Argument<string> _repositoryArgument;
     private readonly Argument<string> _filePathArgument;
     private readonly Option<bool> _noLineNumbersOption;
+    private readonly Option<bool> _quietOption;
 
     public RepositoryFilesShowCommand() : base("show", """
         Display the content of a file from a repository
@@ -210,9 +229,16 @@ public class RepositoryFilesShowCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_repositoryArgument);
         AddArgument(_filePathArgument);
         AddOption(_noLineNumbersOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -220,15 +246,19 @@ public class RepositoryFilesShowCommand : AuthenticatedCommand
         var repository = context.ParseResult.GetValueForArgument(_repositoryArgument);
         var filePath = context.ParseResult.GetValueForArgument(_filePathArgument);
         var noLineNumbers = context.ParseResult.GetValueForOption(_noLineNumbersOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         try
         {
-            WriteInfo($"Retrieving file '{filePath}' from repository '{repository}'...");
+            if (!quiet)
+            {
+                WriteInfo($"Retrieving file '{filePath}' from repository '{repository}'...");
+            }
             
             var fileContent = await apiClient.GetRepositoryFileContentAsync(repository, filePath, cancellationToken);
             
-            DisplayFileContent(fileContent, noLineNumbers);
+            DisplayFileContent(fileContent, noLineNumbers, quiet);
             return 0;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
@@ -249,19 +279,25 @@ public class RepositoryFilesShowCommand : AuthenticatedCommand
         }
     }
 
-    private static void DisplayFileContent(FileContentResponse fileContent, bool noLineNumbers)
+    private static void DisplayFileContent(FileContentResponse fileContent, bool noLineNumbers, bool quiet = false)
     {
-        AnsiConsole.MarkupLine($"[bold blue]File:[/] {fileContent.FileName}");
-        AnsiConsole.MarkupLine($"[bold blue]Size:[/] {FormatFileSize(fileContent.Size)}");
-        if (!string.IsNullOrEmpty(fileContent.MimeType))
+        if (!quiet)
         {
-            AnsiConsole.MarkupLine($"[bold blue]Type:[/] {fileContent.MimeType}");
+            AnsiConsole.MarkupLine($"[bold blue]File:[/] {fileContent.FileName}");
+            AnsiConsole.MarkupLine($"[bold blue]Size:[/] {FormatFileSize(fileContent.Size)}");
+            if (!string.IsNullOrEmpty(fileContent.MimeType))
+            {
+                AnsiConsole.MarkupLine($"[bold blue]Type:[/] {fileContent.MimeType}");
+            }
+            AnsiConsole.WriteLine();
         }
-        AnsiConsole.WriteLine();
 
         if (IsBinaryContent(fileContent.MimeType))
         {
-            AnsiConsole.MarkupLine("[yellow]Binary file content not displayed[/]");
+            if (!quiet)
+            {
+                AnsiConsole.MarkupLine("[yellow]Binary file content not displayed[/]");
+            }
             return;
         }
 
@@ -308,6 +344,7 @@ public class RepositoryFilesDownloadCommand : AuthenticatedCommand
     private readonly Argument<string> _filePathArgument;
     private readonly Option<string> _outputOption;
     private readonly Option<bool> _overwriteOption;
+    private readonly Option<bool> _quietOption;
 
     public RepositoryFilesDownloadCommand() : base("download", """
         Download a file from a repository to the local filesystem
@@ -347,10 +384,17 @@ public class RepositoryFilesDownloadCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_repositoryArgument);
         AddArgument(_filePathArgument);
         AddOption(_outputOption);
         AddOption(_overwriteOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -359,6 +403,7 @@ public class RepositoryFilesDownloadCommand : AuthenticatedCommand
         var filePath = context.ParseResult.GetValueForArgument(_filePathArgument);
         var outputPath = context.ParseResult.GetValueForOption(_outputOption);
         var overwrite = context.ParseResult.GetValueForOption(_overwriteOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         // Determine output path
@@ -377,13 +422,19 @@ public class RepositoryFilesDownloadCommand : AuthenticatedCommand
 
         try
         {
-            WriteInfo($"Downloading '{filePath}' from repository '{repository}'...");
+            if (!quiet)
+            {
+                WriteInfo($"Downloading '{filePath}' from repository '{repository}'...");
+            }
             
             var fileContent = await apiClient.GetRepositoryFileContentAsync(repository, filePath, cancellationToken);
             
             await File.WriteAllTextAsync(outputPath, fileContent.Content, cancellationToken);
             
-            WriteSuccess($"Downloaded '{filePath}' to '{outputPath}' ({FormatFileSize(fileContent.Size)})");
+            if (!quiet)
+            {
+                WriteSuccess($"Downloaded '{filePath}' to '{outputPath}' ({FormatFileSize(fileContent.Size)})");
+            }
             return 0;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
@@ -424,6 +475,7 @@ public class RepositoryFilesSearchCommand : AuthenticatedCommand
     private readonly Option<string> _pathOption;
     private readonly Option<string> _formatOption;
     private readonly Option<bool> _caseSensitiveOption;
+    private readonly Option<bool> _quietOption;
 
     public RepositoryFilesSearchCommand() : base("search", """
         Search for files in a repository using patterns
@@ -475,11 +527,18 @@ public class RepositoryFilesSearchCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddArgument(_repositoryArgument);
         AddOption(_patternOption);
         AddOption(_pathOption);
         AddOption(_formatOption);
         AddOption(_caseSensitiveOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -489,11 +548,16 @@ public class RepositoryFilesSearchCommand : AuthenticatedCommand
         var path = context.ParseResult.GetValueForOption(_pathOption);
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var caseSensitive = context.ParseResult.GetValueForOption(_caseSensitiveOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         try
         {
-            WriteInfo($"Searching for files matching '{pattern}' in repository '{repository}'{(path != null ? $" at path '{path}'" : "")}...");
+            // Only show progress info when not in quiet mode
+            if (!quiet)
+            {
+                WriteInfo($"Searching for files matching '{pattern}' in repository '{repository}'{(path != null ? $" at path '{path}'" : "")}...");
+            }
             
             // Get all files from the repository
             var allFiles = await apiClient.GetRepositoryFilesAsync(repository, path, cancellationToken);
@@ -503,12 +567,19 @@ public class RepositoryFilesSearchCommand : AuthenticatedCommand
             
             if (!matchingFiles.Any())
             {
-                WriteInfo($"No files found matching pattern '{pattern}'");
+                if (!quiet)
+                {
+                    WriteInfo($"No files found matching pattern '{pattern}'");
+                }
                 return 0;
             }
 
-            WriteSuccess($"Found {matchingFiles.Count()} files matching pattern '{pattern}'");
-            DisplayFiles(matchingFiles, format);
+            // Only show success message when not in quiet mode
+            if (!quiet)
+            {
+                WriteSuccess($"Found {matchingFiles.Count()} files matching pattern '{pattern}'");
+            }
+            DisplayFiles(matchingFiles, format, context);
             return 0;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
@@ -536,19 +607,24 @@ public class RepositoryFilesSearchCommand : AuthenticatedCommand
         return files.Where(file => regex.IsMatch(file.Name));
     }
 
-    private static void DisplayFiles(IEnumerable<FileInfoResponse> files, string format)
+    private void DisplayFiles(IEnumerable<FileInfoResponse> files, string format, InvocationContext context)
     {
         switch (format.ToLowerInvariant())
         {
             case "json":
-                var json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
-                Console.WriteLine(json);
+                // Simple direct JSON serialization without any Spectre.Console involvement
+                var filesList = files.ToList(); // Ensure enumeration is materialized
+                var json = JsonSerializer.Serialize(filesList, new JsonSerializerOptions { WriteIndented = true });
+                
+                // Write directly to context console only (for test capture)
+                context.Console.WriteLine(json);
                 break;
                 
             case "yaml":
                 var serializer = new SerializerBuilder().Build();
                 var yaml = serializer.Serialize(files);
-                Console.WriteLine(yaml);
+                // Use WriteOutput to properly handle both console and test capture without markup parsing
+                WriteOutput(context, yaml);
                 break;
                 
             case "table":

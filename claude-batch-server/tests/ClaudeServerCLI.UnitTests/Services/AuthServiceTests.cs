@@ -37,7 +37,7 @@ public class AuthServiceTests
         var loginResponse = new LoginResponse
         {
             Token = token,
-            User = username,
+            Username = username,
             Expires = DateTime.UtcNow.AddHours(1)
         };
 

@@ -131,7 +131,7 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<FileContentResponse> GetRepositoryFileContentAsync(string repoName, string filePath, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting file content for repository: {RepoName}, file: {FilePath}", repoName, filePath);
-        var url = $"repositories/{Uri.EscapeDataString(repoName)}/files/{Uri.EscapeDataString(filePath)}/content";
+        var url = $"repositories/{Uri.EscapeDataString(repoName)}/files/content?filePath={Uri.EscapeDataString(filePath)}";
         var response = await GetAsync<FileContentResponse>(url, cancellationToken);
         return response ?? throw new InvalidOperationException($"Failed to get content for file '{filePath}' in repository '{repoName}'");
     }
@@ -233,12 +233,14 @@ public class ApiClient : IApiClient, IDisposable
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(file.ContentType);
         content.Add(fileContent, "file", file.FileName); // Changed from "files" to "file" to match API
         
+        // CRITICAL FIX: Send overwrite as query parameter, not form data
+        var endpoint = $"jobs/{jobId}/files";
         if (overwrite)
         {
-            content.Add(new StringContent("true"), "overwrite");
+            endpoint += "?overwrite=true";
         }
 
-        var response = await SendAsync($"jobs/{jobId}/files", HttpMethod.Post, content, cancellationToken);
+        var response = await SendAsync(endpoint, HttpMethod.Post, content, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
         var result = JsonSerializer.Deserialize(json, CliJsonSerializerContext.Default.FileUploadResponse);
         return result ?? throw new InvalidOperationException($"Failed to upload file '{file.FileName}'");
@@ -247,7 +249,7 @@ public class ApiClient : IApiClient, IDisposable
     public async Task<IEnumerable<JobFile>> GetJobFilesAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting files for job: {JobId}", jobId);
-        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"jobs/{jobId}/files/files?path=", cancellationToken);
+        var response = await GetAsync<IEnumerable<FileInfoResponse>>($"jobs/{jobId}/uploaded-files", cancellationToken);
         return response?.Select(MapJobFile) ?? Enumerable.Empty<JobFile>();
     }
 
@@ -256,6 +258,17 @@ public class ApiClient : IApiClient, IDisposable
         _logger.LogDebug("Downloading file for job: {JobId}, file: {FileName}", jobId, fileName);
         var response = await SendAsync($"jobs/{jobId}/files/download?path={Uri.EscapeDataString(fileName)}", HttpMethod.Get, null, cancellationToken);
         return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    public async Task DeleteJobFileAsync(string jobId, string fileName, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting file for job: {JobId}, file: {FileName}", jobId, fileName);
+        var response = await SendAsync($"jobs/{jobId}/files/{Uri.EscapeDataString(fileName)}", HttpMethod.Delete, null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException($"Failed to delete file '{fileName}': {errorContent}");
+        }
     }
 
     // Image Upload - Currently not supported by API (no /images endpoint exists)

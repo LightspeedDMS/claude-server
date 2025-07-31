@@ -30,6 +30,7 @@ public interface IApiClient
     Task<FileUploadResponse> UploadSingleFileAsync(string jobId, FileUpload file, bool overwrite = false, CancellationToken cancellationToken = default);
     Task<IEnumerable<JobFile>> GetJobFilesAsync(string jobId, CancellationToken cancellationToken = default);
     Task<Stream> DownloadJobFileAsync(string jobId, string fileName, CancellationToken cancellationToken = default);
+    Task DeleteJobFileAsync(string jobId, string fileName, CancellationToken cancellationToken = default);
 
     // Image Upload
     Task<ImageUploadResponse> UploadImageAsync(string jobId, byte[] imageData, string fileName, CancellationToken cancellationToken = default);

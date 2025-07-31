@@ -47,12 +47,16 @@ public abstract class E2ETestBase : IDisposable
     protected async Task<bool> LoginAsync(string? profile = null)
     {
         var profileArg = profile != null ? $"--profile {profile}" : "";
-        var result = await CliHelper.ExecuteCommandAsync(
-            $"auth login --username {ServerHarness.TestUser} --password \"{ServerHarness.TestPassword}\" {profileArg}");
+        // Use --quiet flag to suppress ANSI output that contaminates JSON in tests
+        var command = $"auth login --username {ServerHarness.TestUser} --password \"{ServerHarness.TestPassword}\" {profileArg} --quiet";
         
-        Output.WriteLine($"Login result: {result.CombinedOutput}");
+        Output.WriteLine($"Executing command: {command}");
+        var result = await CliHelper.ExecuteCommandAsync(command);
         
-        return result.Success && result.CombinedOutput.Contains("successfully", StringComparison.OrdinalIgnoreCase);
+        Output.WriteLine($"Login result: ExitCode={result.ExitCode}, Success={result.Success}");
+        
+        // In quiet mode, we only check exit code since there's no success message
+        return result.Success;
     }
     
     /// <summary>
@@ -61,9 +65,10 @@ public abstract class E2ETestBase : IDisposable
     protected async Task<bool> LogoutAsync(string? profile = null)
     {
         var profileArg = profile != null ? $"--profile {profile}" : "";
-        var result = await CliHelper.ExecuteCommandAsync($"auth logout {profileArg}");
+        // Use --quiet flag to suppress ANSI output that contaminates JSON in tests
+        var result = await CliHelper.ExecuteCommandAsync($"auth logout {profileArg} --quiet");
         
-        Output.WriteLine($"Logout result: {result.CombinedOutput}");
+        Output.WriteLine($"Logout result: ExitCode={result.ExitCode}, Success={result.Success}");
         
         return result.Success;
     }
@@ -153,11 +158,14 @@ public abstract class E2ETestBase : IDisposable
     {
         try
         {
-            // Extract JSON from output (might have other text)
-            var jsonMatch = Regex.Match(output, @"\{[\s\S]*\}|\[[\s\S]*\]");
+            // Strip ANSI escape codes first
+            var cleanOutput = Regex.Replace(output, @"\x1B\[[0-?]*[ -/]*[@-~]", "");
+            
+            // Extract JSON from output (might have other text like "Token set on ApiClient" messages)
+            var jsonMatch = Regex.Match(cleanOutput, @"(\[[\s\S]*\]|\{[\s\S]*\})", RegexOptions.Multiline);
             if (!jsonMatch.Success)
             {
-                throw new InvalidOperationException($"No JSON found in output: {output}");
+                throw new InvalidOperationException($"No JSON found in clean output: {cleanOutput}");
             }
             
             var json = jsonMatch.Value;
@@ -215,6 +223,79 @@ public abstract class E2ETestBase : IDisposable
     }
     
     /// <summary>
+    /// Clean up any leftover repositories from previous test runs
+    /// </summary>
+    private async Task CleanupLeftoverRepositoriesAsync()
+    {
+        try
+        {
+            // Login first
+            var loginSuccess = await LoginAsync();
+            if (!loginSuccess)
+            {
+                Output.WriteLine("Could not login for global cleanup");
+                return;
+            }
+            
+            // Get list of all repositories
+            var listResult = await CliHelper.ExecuteCommandAsync("repos list --format json");
+            if (!listResult.Success)
+            {
+                Output.WriteLine($"Could not list repositories for cleanup: {listResult.CombinedOutput}");
+                // Ensure logout even if list fails
+                await LogoutAsync();
+                return;
+            }
+            
+            // Parse the JSON to get repository names
+            var repos = ParseJsonOutput<List<Dictionary<string, object>>>(listResult.CombinedOutput);
+            if (repos == null || repos.Count == 0)
+            {
+                Output.WriteLine("No repositories found for cleanup");
+                // Ensure logout before returning
+                await LogoutAsync();
+                return;
+            }
+            
+            // Delete all test repositories (those starting with "tries-test-repo")
+            foreach (var repo in repos)
+            {
+                if (repo.TryGetValue("name", out var nameObj) && nameObj is string name)
+                {
+                    if (name.StartsWith("tries-test-repo"))
+                    {
+                        try
+                        {
+                            var deleteResult = await CliHelper.ExecuteCommandAsync($"repos delete {name} --force");
+                            Output.WriteLine($"Global cleanup removed repository: {name} - Success: {deleteResult.Success}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Output.WriteLine($"Failed to cleanup repository {name}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            
+            // Always logout after cleanup to not interfere with test authentication state
+            await LogoutAsync();
+        }
+        catch (Exception ex)
+        {
+            Output.WriteLine($"Global repository cleanup failed: {ex.Message}");
+            // Ensure logout even if exception occurs
+            try
+            {
+                await LogoutAsync();
+            }
+            catch
+            {
+                // Best effort logout
+            }
+        }
+    }
+    
+    /// <summary>
     /// Run a git command in a directory
     /// </summary>
     private async Task RunGitCommandAsync(string workingDirectory, string arguments)
@@ -244,27 +325,49 @@ public abstract class E2ETestBase : IDisposable
     
     public virtual void Dispose()
     {
-        // Cleanup created jobs
-        foreach (var jobId in CreatedJobIds)
+        // Cleanup using Task.Run to avoid deadlocks with .Result/.Wait()
+        Task.Run(async () =>
         {
+            // Cleanup created jobs
+            foreach (var jobId in CreatedJobIds)
+            {
+                try
+                {
+                    var result = await CliHelper.ExecuteCommandAsync($"jobs delete {jobId} --force");
+                    Output.WriteLine($"Cleanup job {jobId}: {result.Success}");
+                }
+                catch { /* Best effort */ }
+            }
+            
+            // Cleanup created repos
+            foreach (var repoId in CreatedRepoIds)
+            {
+                try
+                {
+                    // First ensure we're authenticated for cleanup
+                    await LoginAsync();
+                    
+                    var result = await CliHelper.ExecuteCommandAsync($"repos delete {repoId} --force");
+                    Output.WriteLine($"Cleanup repo {repoId}: {result.Success} - Output: {result.CombinedOutput}");
+                    
+                    if (!result.Success)
+                    {
+                        Output.WriteLine($"WARNING: Failed to cleanup repo {repoId}: {result.CombinedOutput}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Output.WriteLine($"ERROR: Exception during repo cleanup {repoId}: {ex.Message}");
+                }
+            }
+            
+            // Ensure we're logged out
             try
             {
-                var result = CliHelper.ExecuteCommandAsync($"jobs delete {jobId} --force").Result;
-                Output.WriteLine($"Cleanup job {jobId}: {result.Success}");
+                await LogoutAsync();
             }
             catch { /* Best effort */ }
-        }
-        
-        // Cleanup created repos
-        foreach (var repoId in CreatedRepoIds)
-        {
-            try
-            {
-                var result = CliHelper.ExecuteCommandAsync($"repos delete {repoId} --force").Result;
-                Output.WriteLine($"Cleanup repo {repoId}: {result.Success}");
-            }
-            catch { /* Best effort */ }
-        }
+        }).GetAwaiter().GetResult();
         
         // Cleanup test data directory
         if (Directory.Exists(TestDataDirectory))
@@ -285,12 +388,5 @@ public abstract class E2ETestBase : IDisposable
             }
             catch { /* Best effort */ }
         }
-        
-        // Ensure we're logged out
-        try
-        {
-            LogoutAsync().Wait();
-        }
-        catch { /* Best effort */ }
     }
 }

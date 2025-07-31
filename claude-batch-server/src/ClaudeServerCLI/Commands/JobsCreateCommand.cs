@@ -2,15 +2,16 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using ClaudeBatchServer.Core.DTOs;
 using ClaudeServerCLI.Services;
+using ClaudeServerCLI.Models;
 using ClaudeServerCLI.UI;
 using Spectre.Console;
 
 namespace ClaudeServerCLI.Commands;
 
 /// <summary>
-/// Enhanced job creation command with universal file upload and advanced prompt handling
+/// Job creation command with universal file upload and advanced prompt handling
 /// </summary>
-public class EnhancedJobsCreateCommand : AuthenticatedCommand
+public class JobsCreateCommand : AuthenticatedCommand
 {
     private readonly Option<string> _repositoryOption;
     private readonly Option<string> _promptOption;
@@ -21,7 +22,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
     private readonly Option<bool> _watchOption;
     private readonly Option<int> _timeoutOption;
 
-    public EnhancedJobsCreateCommand() : base("create", "Create a new job with advanced features")
+    public JobsCreateCommand() : base("create", "Create a new job with advanced features")
     {
         _repositoryOption = new Option<string>(
             aliases: ["--repo", "--repository", "-r"],
@@ -160,10 +161,11 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
                 }
             }
 
-            // Verify repository exists
+            // Verify repository exists and get its capabilities
+            RepositoryInfo repositoryInfo;
             try
             {
-                await apiClient.GetRepositoryAsync(repository, cancellationToken);
+                repositoryInfo = await apiClient.GetRepositoryAsync(repository, cancellationToken);
                 WriteSuccess($"Repository '{repository}' verified");
             }
             catch (InvalidOperationException)
@@ -240,7 +242,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
             // Execute job creation
             return await CreateAndExecuteJobAsync(
                 apiClient, promptService, fileUploadService,
-                repository, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
+                repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -269,10 +271,11 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
             return 1;
         }
 
-        // Verify repository exists
+        // Verify repository exists and get its capabilities
+        RepositoryInfo repositoryInfo;
         try
         {
-            await apiClient.GetRepositoryAsync(repository, cancellationToken);
+            repositoryInfo = await apiClient.GetRepositoryAsync(repository, cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -310,7 +313,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
 
         return await CreateAndExecuteJobAsync(
             apiClient, promptService, fileUploadService,
-            repository, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
+            repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
     }
 
     private async Task<int> CreateAndExecuteJobAsync(
@@ -318,6 +321,7 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
         IPromptService promptService,
         IFileUploadService fileUploadService,
         string repository,
+        RepositoryInfo repositoryInfo,
         string prompt,
         List<string> files,
         bool autoStart,
@@ -331,6 +335,13 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
             // Step 1: Create the job
             progress.Report(("Creating job...", 10));
             
+            // Use repository's CIDX capability to determine job CIDX setting
+            var cidxAware = repositoryInfo.CidxAware ?? false;
+            if (!cidxAware)
+            {
+                WriteInfo("Repository is not CIDX-aware, creating job without semantic search");
+            }
+            
             var request = new CreateJobRequest
             {
                 Repository = repository,
@@ -339,12 +350,12 @@ public class EnhancedJobsCreateCommand : AuthenticatedCommand
                 {
                     Timeout = timeout,
                     GitAware = true,
-                    CidxAware = true
+                    CidxAware = cidxAware
                 }
             };
 
             var response = await apiClient.CreateJobAsync(request, cancellationToken);
-            WriteSuccess($"Job created: {response.JobId}");
+            WriteSuccess($"Job created successfully: {response.JobId}");
 
             // Step 2: Upload files if any
             Dictionary<string, string> templateMappings = new();

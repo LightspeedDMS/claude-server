@@ -35,9 +35,16 @@ public class AuthenticationE2ETests : E2ETestBase
     [Fact]
     public async Task LoginCommand_WithInvalidCredentials_ShouldFail()
     {
+        // Arrange - Ensure clean state by logging out first
+        Output.WriteLine("Starting LoginCommand_WithInvalidCredentials test...");
+        var logoutResult = await LogoutAsync();
+        Output.WriteLine($"Initial logout result: {logoutResult}");
+        
         // Act
         var result = await CliHelper.ExecuteCommandAsync(
             $"auth login --username {ServerHarness.TestUser} --password WrongPassword123!");
+        Output.WriteLine($"Failed login attempt result: {result.CombinedOutput}");
+        Output.WriteLine($"Failed login attempt success: {result.Success}, exit code: {result.ExitCode}");
         
         // Assert
         result.Success.Should().BeFalse();
@@ -46,12 +53,16 @@ public class AuthenticationE2ETests : E2ETestBase
         
         // Verify we're not authenticated
         var whoamiResult = await CliHelper.ExecuteCommandAsync("auth whoami");
+        Output.WriteLine($"Post-failed-login whoami result: {whoamiResult.CombinedOutput}");
         whoamiResult.CombinedOutput.Should().Contain("✗ No");
     }
     
     [Fact]
     public async Task LoginCommand_WithNonExistentUser_ShouldFail()
     {
+        // Arrange - Ensure clean state by logging out first
+        await LogoutAsync();
+        
         // Act
         var result = await CliHelper.ExecuteCommandAsync(
             "auth login --username nonexistentuser --password somepassword");
@@ -121,11 +132,23 @@ public class AuthenticationE2ETests : E2ETestBase
     [Fact]
     public async Task WhoamiCommand_WhenNotLoggedIn_ShouldShowNotAuthenticated()
     {
-        // Arrange
-        await LogoutAsync();
+        // Arrange - Force logout to ensure clean state
+        Output.WriteLine("Starting WhoamiCommand_WhenNotLoggedIn test...");
+        
+        // First, check if we're already logged out
+        var initialWhoami = await CliHelper.ExecuteCommandAsync("auth whoami");
+        Output.WriteLine($"Initial whoami result: {initialWhoami.CombinedOutput}");
+        
+        // Perform logout (should be idempotent)
+        var logoutResult = await LogoutAsync();
+        Output.WriteLine($"Logout performed, success: {logoutResult}");
+        
+        // Wait a brief moment to ensure any async token clearing is complete
+        await Task.Delay(100);
         
         // Act
         var result = await CliHelper.ExecuteCommandAsync("auth whoami");
+        Output.WriteLine($"Final whoami result: {result.CombinedOutput}");
         
         // Assert
         result.Success.Should().BeTrue(); // Command succeeds even when not authenticated

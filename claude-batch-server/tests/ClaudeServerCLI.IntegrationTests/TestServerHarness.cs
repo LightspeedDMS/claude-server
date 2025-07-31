@@ -126,7 +126,16 @@ public class TestServerHarness : IAsyncLifetime
             // Clean up test config from API directory
             try
             {
-                var currentDir = Directory.GetCurrentDirectory();
+                string currentDir;
+                try
+                {
+                    currentDir = Directory.GetCurrentDirectory();
+                }
+                catch (Exception ex)
+                {
+                    Log($"Warning: Could not get current directory during cleanup ({ex.Message}), using environment variable");
+                    currentDir = Environment.GetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT") ?? "/tmp";
+                }
                 var projectRoot = FindProjectRoot(currentDir);
                 var apiProjectPath = Path.Combine(projectRoot, "src", "ClaudeBatchServer.Api");
                 var testConfigInApiDir = Path.Combine(apiProjectPath, "appsettings.Testing.json");
@@ -247,8 +256,17 @@ public class TestServerHarness : IAsyncLifetime
     {
         Log("Starting test API server...");
         
-        // Find the API project path
-        var currentDir = Directory.GetCurrentDirectory();
+        // Find the API project path - use environment variable if current directory is invalid
+        string currentDir;
+        try
+        {
+            currentDir = Directory.GetCurrentDirectory();
+        }
+        catch (Exception ex)
+        {
+            Log($"Warning: Could not get current directory ({ex.Message}), using environment variable");
+            currentDir = Environment.GetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT") ?? "/tmp";
+        }
         var projectRoot = FindProjectRoot(currentDir);
         var apiProjectPath = Path.Combine(projectRoot, "src", "ClaudeBatchServer.Api");
         var apiDllPath = Path.Combine(apiProjectPath, "bin", "Debug", "net8.0", "ClaudeBatchServer.Api.dll");
@@ -451,9 +469,14 @@ public class TestServerHarness : IAsyncLifetime
 
     private static int GetAvailablePort()
     {
-        // Find an available port starting from 8444
-        for (int port = 8444; port < 8500; port++)
+        // Use a random starting point to reduce race conditions when multiple tests start simultaneously
+        var random = new Random();
+        int startPort = random.Next(8444, 8480); // Random start in first part of range
+        
+        // Try ports starting from random point
+        for (int i = 0; i < 56; i++) // Check all 56 ports in range
         {
+            int port = 8444 + ((startPort - 8444 + i) % 56);
             if (IsPortAvailable(port))
             {
                 return port;
@@ -483,6 +506,9 @@ public class TestServerHarness : IAsyncLifetime
 
 /// <summary>
 /// Collection definition for sharing the test server harness across test classes
+/// IMPORTANT: All tests in this collection must run SEQUENTIALLY (not in parallel)
+/// because they share the same TestServerHarness instance, server port, and CLI processes.
+/// Parallel execution causes resource contention, deadlocks, and test failures.
 /// </summary>
 [CollectionDefinition("TestServer")]
 public class TestServerCollection : ICollectionFixture<TestServerHarness>

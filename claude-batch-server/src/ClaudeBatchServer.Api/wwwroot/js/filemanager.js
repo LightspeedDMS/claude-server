@@ -605,9 +605,24 @@ class JobFileManager {
         return true;
     }
 
-    showLoginPrompt() {
-        const username = prompt('Enter username:');
-        const password = prompt('Enter password:');
+    showLoginPrompt(retryReason = null) {
+        this.authRetryCount = this.authRetryCount || 0;
+        this.maxRetries = this.maxRetries || 3;
+        
+        let promptMessage = 'Enter username:';
+        if (retryReason) {
+            promptMessage = `Authentication failed (${retryReason}). Enter username:`;
+        }
+        
+        const username = prompt(promptMessage);
+        if (!username) return;
+
+        let passwordMessage = 'Enter password or hash (e.g., $y$...):';
+        if (retryReason) {
+            passwordMessage = `Enter password or hash (${retryReason}):`;
+        }
+        
+        const password = prompt(passwordMessage);
         
         if (username && password) {
             this.login(username, password);
@@ -616,26 +631,93 @@ class JobFileManager {
 
     async login(username, password) {
         try {
+            // Detect if user is providing a pre-computed hash
+            const isHashAuth = this.isPrecomputedHash(password);
+            
             const response = await fetch('/auth/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ 
+                    username, 
+                    password,
+                    authType: isHashAuth ? 'hash' : 'plaintext'
+                })
             });
 
             if (response.ok) {
                 const result = await response.json();
                 localStorage.setItem('authToken', result.token);
                 localStorage.setItem('username', result.username);
+                this.authRetryCount = 0; // Reset retry count on success
                 this.loadJobs(); // Retry loading jobs after authentication
+                return true;
             } else {
-                alert('Login failed. Please check your credentials.');
+                // Parse detailed error response
+                const errorData = await response.json().catch(() => ({}));
+                const errorType = errorData.errorType || 'Unknown';
+                const errorMessage = errorData.error || 'Login failed';
+                
+                this.handleLoginError(errorType, errorMessage);
+                return false;
             }
         } catch (error) {
             console.error('Login error:', error);
-            alert('Login failed. Please try again.');
+            this.handleLoginError('NetworkError', 'Network error occurred. Please check your connection.');
+            return false;
         }
+    }
+
+    // Test method for hash detection
+    isPrecomputedHash(password) {
+        // Shadow file hash format: $algorithm$salt$hash
+        // Valid algorithms: $1$ (MD5), $5$ (SHA-256), $6$ (SHA-512), $y$ (yescrypt)
+        if (!password.startsWith("$")) return false;
+        
+        const parts = password.split('$');
+        if (parts.length < 4) return false;
+        
+        // Check if algorithm is supported
+        const algorithm = parts[1];
+        return algorithm === "1" || algorithm === "5" || algorithm === "6" || algorithm === "y";
+    }
+
+    // Specific error handling with retry logic
+    handleLoginError(errorType, errorMessage) {
+        this.authRetryCount = (this.authRetryCount || 0) + 1;
+        
+        if (this.authRetryCount >= (this.maxRetries || 3)) {
+            alert(`Authentication failed after ${this.maxRetries || 3} attempts. Please contact an administrator.\n\nLast error: ${errorMessage}`);
+            this.authRetryCount = 0;
+            return;
+        }
+
+        let retryPrompt = '';
+        switch (errorType) {
+            case 'InvalidCredentials':
+                retryPrompt = 'Invalid username or password';
+                break;
+            case 'MalformedHash':
+                retryPrompt = 'Invalid hash format. Use $y$... for yescrypt hashes';
+                break;
+            case 'UserNotFound':
+                retryPrompt = 'User not found';
+                break;
+            case 'ValidationError':
+                retryPrompt = 'Username and password are required';
+                break;
+            case 'NetworkError':
+                retryPrompt = 'Network error';
+                break;
+            default:
+                retryPrompt = 'Authentication error';
+        }
+
+        // Show retry prompt with specific error context
+        setTimeout(() => {
+            this.showLoginPrompt(retryPrompt);
+        }, 100);
     }
 
     initializeResizer() {

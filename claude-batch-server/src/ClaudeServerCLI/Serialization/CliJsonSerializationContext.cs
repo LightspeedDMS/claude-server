@@ -48,6 +48,7 @@ namespace ClaudeServerCLI.Serialization;
 [JsonSerializable(typeof(UnregisterRepositoryResponse))]
 [JsonSerializable(typeof(AheadBehindStatus))]
 [JsonSerializable(typeof(FileInfoResponse))]
+[JsonSerializable(typeof(IEnumerable<FileInfoResponse>))]
 [JsonSerializable(typeof(FileContentResponse))]
 [JsonSerializable(typeof(DirectoryInfoResponse))]
 public partial class CliJsonSerializerContext : JsonSerializerContext

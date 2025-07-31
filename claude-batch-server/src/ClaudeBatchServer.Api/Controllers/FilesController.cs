@@ -12,15 +12,18 @@ public class FilesController : ControllerBase
 {
     private readonly IJobService _jobService;
     private readonly IRepositoryService _repositoryService;
+    private readonly IJobPersistenceService _jobPersistenceService;
     private readonly ILogger<FilesController> _logger;
 
     public FilesController(
         IJobService jobService, 
-        IRepositoryService repositoryService, 
+        IRepositoryService repositoryService,
+        IJobPersistenceService jobPersistenceService,
         ILogger<FilesController> logger)
     {
         _jobService = jobService;
         _repositoryService = repositoryService;
+        _jobPersistenceService = jobPersistenceService;
         _logger = logger;
     }
 
@@ -184,7 +187,62 @@ public class FilesController : ControllerBase
             if (job == null)
                 return NotFound("Job not found");
 
-            var fileData = await _repositoryService.DownloadFileAsync(job.CowPath, path);
+            byte[]? fileData = null;
+
+            // CRITICAL FIX: Check both CoW workspace AND staging area for file downloads
+            // Jobs in "created" status have files in staging area, processed jobs have files in CoW workspace
+            if (!string.IsNullOrEmpty(job.CowPath))
+            {
+                // First try CoW workspace (for processed jobs)
+                fileData = await _repositoryService.DownloadFileAsync(job.CowPath, path);
+            }
+
+            if (fileData == null)
+            {
+                // Fallback to staging area (for unprocessed jobs)
+                // Use JobPersistenceService to get the correct staging path
+                var stagingPath = _jobPersistenceService.GetJobStagingPath(jobId);
+                var stagingFilePath = Path.Combine(stagingPath, path);
+                
+                // First try exact filename match
+                if (System.IO.File.Exists(stagingFilePath))
+                {
+                    fileData = await System.IO.File.ReadAllBytesAsync(stagingFilePath);
+                    _logger.LogDebug("Downloaded file {Path} from staging area (exact match) for job {JobId}", path, jobId);
+                }
+                else if (Directory.Exists(stagingPath))
+                {
+                    // If exact match fails, try to find file with suffix pattern
+                    // Server generates unique filenames: {nameWithoutExtension}_{guid}{extension}
+                    var nameWithoutExtension = Path.GetFileNameWithoutExtension(path);
+                    var extension = Path.GetExtension(path);
+                    var pattern = $"{nameWithoutExtension}_*{extension}";
+                    
+                    _logger.LogDebug("PATTERN MATCHING DEBUG: Looking for file {Path} in staging {StagingPath} with pattern {Pattern}", 
+                        path, stagingPath, pattern);
+                    
+                    var matchingFiles = Directory.GetFiles(stagingPath, pattern);
+                    _logger.LogDebug("PATTERN MATCHING DEBUG: Found {FileCount} matching files: {Files}", 
+                        matchingFiles.Length, string.Join(", ", matchingFiles.Select(f => Path.GetFileName(f))));
+                    
+                    if (matchingFiles.Length > 0)
+                    {
+                        // Use the first matching file (should be unique due to GUID suffix)
+                        var actualFilePath = matchingFiles[0];
+                        fileData = await System.IO.File.ReadAllBytesAsync(actualFilePath);
+                        _logger.LogDebug("Downloaded file {Path} from staging area (pattern match: {ActualFile}) for job {JobId}", 
+                            path, Path.GetFileName(actualFilePath), jobId);
+                    }
+                    else
+                    {
+                        // List all files in staging directory for debugging
+                        var allFiles = Directory.GetFiles(stagingPath);
+                        _logger.LogDebug("PATTERN MATCHING DEBUG: No pattern matches. All files in staging: {AllFiles}", 
+                            string.Join(", ", allFiles.Select(f => Path.GetFileName(f))));
+                    }
+                }
+            }
+
             if (fileData == null)
                 return NotFound("File not found");
 

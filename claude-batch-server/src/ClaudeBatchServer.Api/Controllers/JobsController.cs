@@ -89,6 +89,38 @@ public class JobsController : ControllerBase
         }
     }
 
+    [HttpDelete("{jobId}/files/{fileName}")]
+    public async Task<ActionResult> DeleteFile(Guid jobId, string fileName)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            await _jobService.DeleteFileAsync(jobId, username, fileName);
+            
+            return Ok(new { success = true, message = $"File '{fileName}' deleted successfully" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (FileNotFoundException)
+        {
+            return NotFound($"File '{fileName}' not found");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting file {FileName} for job {JobId}", fileName, jobId);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     [HttpPost("{jobId}/start")]
     public async Task<ActionResult<StartJobResponse>> StartJob(Guid jobId)
     {
@@ -170,6 +202,43 @@ public class JobsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting job {JobId}", jobId);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    [HttpGet("{jobId}/uploaded-files")]
+    public async Task<ActionResult<List<FileInfoResponse>>> GetJobFiles(Guid jobId)
+    {
+        try
+        {
+            var username = GetCurrentUsername();
+            if (string.IsNullOrEmpty(username))
+                return Unauthorized();
+
+            var files = await _jobService.GetJobFilesAsync(jobId, username);
+            
+            var response = files.Select(f => new FileInfoResponse
+            {
+                Name = f.Name,
+                Type = f.Type,
+                Path = f.Path,
+                Size = f.Size,
+                Modified = f.Modified
+            }).ToList();
+
+            return Ok(response);
+        }
+        catch (ArgumentException)
+        {
+            return NotFound("Job not found");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting files for job {JobId}", jobId);
             return StatusCode(500, "Internal server error");
         }
     }

@@ -60,6 +60,7 @@ public class ReposListCommand : AuthenticatedCommand
 {
     private readonly Option<string> _formatOption;
     private readonly Option<bool> _watchOption;
+    private readonly Option<bool> _quietOption;
 
     public ReposListCommand() : base("list", """
         List all registered repositories with their status and metadata
@@ -96,44 +97,60 @@ public class ReposListCommand : AuthenticatedCommand
             getDefaultValue: () => false
         );
 
+        _quietOption = new Option<bool>(
+            aliases: ["--quiet", "-q"],
+            description: "Suppress progress messages and ANSI output (for testing/automation)",
+            getDefaultValue: () => false
+        );
+
         AddOption(_formatOption);
         AddOption(_watchOption);
+        AddOption(_quietOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var format = context.ParseResult.GetValueForOption(_formatOption) ?? "table";
         var watch = context.ParseResult.GetValueForOption(_watchOption);
+        var quiet = context.ParseResult.GetValueForOption(_quietOption);
         var cancellationToken = context.GetCancellationToken();
 
         if (watch)
         {
-            return await WatchRepositoriesAsync(apiClient, format, cancellationToken);
+            return await WatchRepositoriesAsync(apiClient, format, quiet, cancellationToken);
         }
         else
         {
-            return await ListRepositoriesOnceAsync(apiClient, format, cancellationToken);
+            return await ListRepositoriesOnceAsync(apiClient, format, quiet, cancellationToken);
         }
     }
 
-    private async Task<int> ListRepositoriesOnceAsync(IApiClient apiClient, string format, CancellationToken cancellationToken)
+    private async Task<int> ListRepositoriesOnceAsync(IApiClient apiClient, string format, bool quiet, CancellationToken cancellationToken)
     {
         try
         {
             var repositories = await apiClient.GetRepositoriesAsync(cancellationToken);
-            DisplayRepositories(repositories, format);
+            DisplayRepositories(repositories, format, quiet);
             return 0;
         }
         catch (Exception ex)
         {
-            WriteError($"Failed to get repositories: {ex.Message}");
+            // Only show error messages when not in quiet mode
+            if (!quiet)
+            {
+                WriteError($"Failed to get repositories: {ex.Message}");
+            }
             return 1;
         }
     }
 
-    private async Task<int> WatchRepositoriesAsync(IApiClient apiClient, string format, CancellationToken cancellationToken)
+    private async Task<int> WatchRepositoriesAsync(IApiClient apiClient, string format, bool quiet, CancellationToken cancellationToken)
     {
-        WriteInfo("Watching repositories... Press Ctrl+C to exit");
+        // Only show watch messages when not in quiet mode
+        if (!quiet)
+        {
+            WriteInfo("Watching repositories... Press Ctrl+C to exit");
+        }
         
         try
         {
@@ -153,7 +170,7 @@ public class ReposListCommand : AuthenticatedCommand
                         AnsiConsole.WriteLine();
                     }
                     
-                    DisplayRepositories(repoList, format);
+                    DisplayRepositories(repoList, format, quiet);
                     
                     if (format == "table")
                     {
@@ -165,7 +182,7 @@ public class ReposListCommand : AuthenticatedCommand
                     if (repoList.Count != lastCount)
                     {
                         lastCount = repoList.Count;
-                        if (format != "table")
+                        if (format != "table" && format.ToLowerInvariant() != "json")
                         {
                             WriteInfo($"Repository count changed: {lastCount}");
                         }
@@ -181,7 +198,7 @@ public class ReposListCommand : AuthenticatedCommand
                     {
                         AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
                     }
-                    else
+                    else if (format.ToLowerInvariant() != "json")
                     {
                         WriteError($"Watch error: {ex.Message}");
                     }
@@ -197,19 +214,25 @@ public class ReposListCommand : AuthenticatedCommand
                 }
             }
 
-            WriteInfo("Watch mode stopped");
+            if (format.ToLowerInvariant() != "json")
+            {
+                WriteInfo("Watch mode stopped");
+            }
             return 0;
         }
         catch (OperationCanceledException)
         {
-            WriteInfo("Watch mode cancelled");
+            if (format.ToLowerInvariant() != "json")
+            {
+                WriteInfo("Watch mode cancelled");
+            }
             return 0;
         }
     }
 
-    private static void DisplayRepositories(IEnumerable<RepositoryInfo> repositories, string format)
+    private static void DisplayRepositories(IEnumerable<RepositoryInfo> repositories, string format, bool quiet = false)
     {
-        UI.ModernDisplay.DisplayRepositories(repositories, format);
+        UI.ModernDisplay.DisplayRepositories(repositories, format, quiet);
     }
 
     private static string GetRepositoryTypeDisplay(string type)
@@ -565,7 +588,7 @@ public class ReposShowCommand : AuthenticatedCommand
                     {
                         AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
                     }
-                    else
+                    else if (format.ToLowerInvariant() != "json")
                     {
                         WriteError($"Watch error: {ex.Message}");
                     }
@@ -581,12 +604,18 @@ public class ReposShowCommand : AuthenticatedCommand
                 }
             }
 
-            WriteInfo("Watch mode stopped");
+            if (format.ToLowerInvariant() != "json")
+            {
+                WriteInfo("Watch mode stopped");
+            }
             return 0;
         }
         catch (OperationCanceledException)
         {
-            WriteInfo("Watch mode cancelled");
+            if (format.ToLowerInvariant() != "json")
+            {
+                WriteInfo("Watch mode cancelled");
+            }
             return 0;
         }
     }

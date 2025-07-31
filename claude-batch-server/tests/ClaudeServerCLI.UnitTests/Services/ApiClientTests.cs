@@ -55,7 +55,7 @@ public class ApiClientTests : IDisposable
         var expectedResponse = new LoginResponse
         {
             Token = "jwt_token_here",
-            User = "testuser",
+            Username = "testuser",
             Expires = DateTime.UtcNow.AddHours(1)
         };
 
@@ -67,7 +67,7 @@ public class ApiClientTests : IDisposable
         // Assert
         result.Should().NotBeNull();
         result.Token.Should().Be(expectedResponse.Token);
-        result.User.Should().Be(expectedResponse.User);
+        result.Username.Should().Be(expectedResponse.Username);
     }
 
     [Fact]
