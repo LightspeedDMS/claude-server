@@ -399,10 +399,50 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
 
     private void ImpersonateUser(ProcessStartInfo processInfo, UserInfo userInfo)
     {
-        // Note: User impersonation is no longer needed since the service runs as the current user
-        // instead of root. The service user already has the necessary permissions to execute commands.
-        _logger.LogDebug("Service running as user {CurrentUser}, no impersonation needed", 
-            Environment.UserName);
+        var currentUser = Environment.UserName;
+        
+        // If we're already running as the target user, no impersonation needed
+        if (currentUser == userInfo.Username)
+        {
+            _logger.LogDebug("Already running as target user {Username}, no impersonation needed", userInfo.Username);
+            return;
+        }
+        
+        // Security check: Prevent impersonation of system users
+        if (IsSystemUser(userInfo.Username))
+        {
+            _logger.LogError("Security violation: Attempted impersonation of system user {Username}", userInfo.Username);
+            throw new SecurityException($"Cannot impersonate system user: {userInfo.Username}");
+        }
+        
+        // Implement user impersonation via sudo
+        _logger.LogInformation("Impersonating user {Username} from service user {ServiceUser}", 
+            userInfo.Username, currentUser);
+        
+        // Wrap the original command with sudo -u to impersonate the user
+        var originalFileName = processInfo.FileName;
+        var originalArguments = processInfo.Arguments;
+        
+        processInfo.FileName = "sudo";
+        processInfo.Arguments = $"-u {userInfo.Username} {originalFileName} {originalArguments}";
+        
+        _logger.LogDebug("Command impersonation: {FileName} {Arguments}", processInfo.FileName, processInfo.Arguments);
+    }
+
+    private bool IsSystemUser(string username)
+    {
+        // List of system users that should never be impersonated
+        var systemUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", 
+            "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats", 
+            "nobody", "systemd-network", "systemd-resolve", "syslog", "messagebus", 
+            "systemd-timesync", "pollinate", "sshd", "landscape", "ubuntu", "lxd",
+            "mysql", "postgres", "redis", "docker", "nginx", "apache", "httpd",
+            "claude-batch-server" // Our own service user
+        };
+        
+        return systemUsers.Contains(username);
     }
 
     private async Task<(bool Success, string Status, string ErrorMessage)> HandleGitOperationsAsync(Job job, UserInfo userInfo, IJobStatusCallback? statusCallback, CancellationToken cancellationToken)
@@ -527,21 +567,22 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
                 return (false, "failed", $"Cidx start failed: {startResult.Output}");
             }
 
-            job.CidxStatus = "reconciling";
+            job.CidxStatus = "waiting_for_containers";
+            if (statusCallback != null)
+                await statusCallback.OnStatusChangedAsync(job);
 
-            // Run cidx index --reconcile to index any new changes from git pull
-            // This is fast since the repo was already fully indexed during registration
-            _logger.LogInformation("Running cidx index --reconcile for pre-indexed repository job {JobId} (indexing new changes only)", job.Id);
-            var reconcileResult = await ExecuteCidxCommandAsync("index --reconcile", job.CowPath, userInfo, cancellationToken);
-            if (reconcileResult.ExitCode != 0)
+            // Wait for CIDX containers to be fully ready before running reconcile
+            _logger.LogInformation("Waiting for CIDX containers to be fully ready for job {JobId}", job.Id);
+            var containersReady = await WaitForCidxContainersReadyAsync(job.CowPath, userInfo, cancellationToken);
+            if (!containersReady.Success)
             {
-                // Try to stop cidx if reconcile failed
+                // Try to stop cidx if containers failed to start properly
                 await ExecuteCidxCommandAsync("stop", job.CowPath, userInfo, CancellationToken.None);
-                return (false, "failed", $"Cidx reconcile failed: {reconcileResult.Output}");
+                return (false, "failed", $"CIDX containers failed to start properly: {containersReady.ErrorMessage}");
             }
 
             job.CidxStatus = "ready";
-            _logger.LogInformation("Cidx reconcile completed successfully for pre-indexed repository job {JobId}", job.Id);
+            _logger.LogInformation("CIDX containers ready for pre-indexed repository job {JobId} - no re-indexing needed in CoW clone", job.Id);
             return (true, "ready", string.Empty);
         }
         catch (Exception ex)
@@ -549,6 +590,100 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             _logger.LogError(ex, "Failed to reconcile cidx for pre-indexed repository job {JobId}", job.Id);
             return (false, "failed", $"Cidx reconcile error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Wait for CIDX containers to be fully ready by checking status periodically
+    /// Verifies that Qdrant and data-cleaner containers are fully up (we don't care about Ollama)
+    /// </summary>
+    private async Task<(bool Success, string ErrorMessage)> WaitForCidxContainersReadyAsync(string workspacePath, UserInfo userInfo, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 30; // 30 attempts
+        const int delayMs = 2000;   // 2 seconds between attempts = 1 minute total timeout
+        
+        _logger.LogInformation("Waiting for CIDX containers to be ready in workspace {WorkspacePath}", workspacePath);
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                // Check if operation was cancelled
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                var statusResult = await ExecuteCidxCommandAsync("status", workspacePath, userInfo, cancellationToken);
+                
+                if (statusResult.ExitCode == 0)
+                {
+                    var statusOutput = statusResult.Output;
+                    _logger.LogDebug("CIDX status check attempt {Attempt}/{MaxAttempts} for workspace {WorkspacePath}: {StatusOutput}", 
+                        attempt, maxAttempts, workspacePath, statusOutput);
+                    
+                    // Check for required containers to be ready
+                    // We need Qdrant container fully up and data-cleaner container fully up
+                    // We don't care about Ollama container status
+                    bool qdrantReady = statusOutput.Contains("Qdrant") && 
+                                      (statusOutput.Contains("Running") || statusOutput.Contains("Ready"));
+                    
+                    bool dataCleanerReady = statusOutput.Contains("data-cleaner") && 
+                                          (statusOutput.Contains("Running") || statusOutput.Contains("Ready"));
+                    
+                    // For a fresh clone, we don't expect previous collections, so that's normal
+                    bool overallHealthy = statusOutput.Contains("✅") || statusOutput.Contains("Ready");
+                    
+                    if (qdrantReady && dataCleanerReady && overallHealthy)
+                    {
+                        _logger.LogInformation("CIDX containers are ready after {Attempt} attempts for workspace {WorkspacePath}", 
+                            attempt, workspacePath);
+                        return (true, string.Empty);
+                    }
+                    
+                    // Log what we're still waiting for
+                    var waitingFor = new List<string>();
+                    if (!qdrantReady) waitingFor.Add("Qdrant");
+                    if (!dataCleanerReady) waitingFor.Add("data-cleaner");
+                    if (!overallHealthy) waitingFor.Add("overall health");
+                    
+                    _logger.LogDebug("CIDX containers not ready yet (attempt {Attempt}/{MaxAttempts}), waiting for: {WaitingFor}", 
+                        attempt, maxAttempts, string.Join(", ", waitingFor));
+                }
+                else
+                {
+                    _logger.LogDebug("CIDX status command failed (attempt {Attempt}/{MaxAttempts}) with exit code {ExitCode}: {Output}", 
+                        attempt, maxAttempts, statusResult.ExitCode, statusResult.Output);
+                }
+                
+                // Don't wait after the last attempt
+                if (attempt < maxAttempts)
+                {
+                    await Task.Delay(delayMs, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("CIDX container readiness check was cancelled for workspace {WorkspacePath}", workspacePath);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking CIDX container status (attempt {Attempt}/{MaxAttempts}) for workspace {WorkspacePath}", 
+                    attempt, maxAttempts, workspacePath);
+                
+                // Don't wait after the last attempt
+                if (attempt < maxAttempts)
+                {
+                    await Task.Delay(delayMs, cancellationToken);
+                }
+            }
+        }
+        
+        // If we get here, containers didn't become ready in time
+        var finalStatusResult = await ExecuteCidxCommandAsync("status", workspacePath, userInfo, CancellationToken.None);
+        var errorMessage = $"CIDX containers failed to become ready within {maxAttempts * delayMs / 1000} seconds. Final status: {finalStatusResult.Output}";
+        
+        _logger.LogError("CIDX containers failed to become ready for workspace {WorkspacePath}: {ErrorMessage}", 
+            workspacePath, errorMessage);
+        
+        return (false, errorMessage);
     }
 
 
@@ -637,9 +772,13 @@ public class ClaudeCodeExecutor : IClaudeCodeExecutor
             _logger.LogWarning("VOYAGE_API_KEY not configured - cidx may default to ollama");
         }
 
+        // CRITICAL: CIDX commands need Docker access, so they should run as the service user
+        // Do NOT impersonate user for CIDX commands - they need the service user's Docker group membership
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            ImpersonateUser(processInfo, userInfo);
+            _logger.LogDebug("CIDX command will run as service user {ServiceUser} for Docker access", 
+                Environment.UserName);
+            // No impersonation - CIDX runs as service user with Docker access
         }
 
         using var process = new Process { StartInfo = processInfo };
