@@ -1,34 +1,28 @@
 import { defineConfig } from 'vite'
 
-export default defineConfig({
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5185',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      },
-      '/auth': {
-        target: 'http://localhost:5185',
-        changeOrigin: true
-      },
-      '/jobs': {
-        target: 'http://localhost:5185',
-        changeOrigin: true
-      },
-      '/repositories': {
-        target: 'http://localhost:5185',
-        changeOrigin: true
-      },
-      '/health': {
-        target: 'http://localhost:5185',
-        changeOrigin: true
+export default defineConfig(({ mode }) => {
+  // In production, nginx handles the API routing
+  // In development, proxy directly to the API server
+  const apiTarget = process.env.VITE_API_URL || 'http://localhost:5000'
+  
+  return {
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: apiTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, '')
+        },
+        '/auth': {
+          target: apiTarget,
+          changeOrigin: true
+        }
       }
+    },
+    build: {
+      outDir: 'dist',
+      assetsDir: 'assets'
     }
-  },
-  build: {
-    outDir: 'dist',
-    assetsDir: 'assets'
   }
 })

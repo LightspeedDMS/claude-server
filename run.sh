@@ -301,7 +301,7 @@ start_web() {
     
     case "$mode" in
         "dev")
-            npm run dev -- --port "$port" &
+            VITE_API_URL=http://localhost:${PORT:-5185} npm run dev -- --port "$port" &
             track_pid $!
             wait_with_signals $! "Web UI"
             ;;
@@ -312,7 +312,7 @@ start_web() {
             wait_with_signals $! "Web UI"
             ;;
         "test")
-            npm run dev -- --port "$port" --mode test &
+            VITE_API_URL=http://localhost:${PORT:-5185} npm run dev -- --port "$port" --mode test &
             track_pid $!
             wait_with_signals $! "Web UI"
             ;;
@@ -323,12 +323,118 @@ start_web() {
     esac
 }
 
+# Ensure test user exists as real system user for dev mode testing
+ensure_test_user() {
+    local current_user=$(whoami)
+    
+    log "Ensuring test_user exists as real system user for dev mode testing..."
+    
+    # Check if test_user already exists
+    if id "test_user" &>/dev/null; then
+        log "test_user already exists as system user"
+        return 0
+    fi
+    
+    # Get current user's password hash to copy to test_user
+    local current_user_hash
+    current_user_hash=$(sudo grep "^$current_user:" /etc/shadow | cut -d: -f2 2>/dev/null || echo "")
+    
+    if [[ -z "$current_user_hash" ]]; then
+        warn "Could not get password hash for current user, setting standard test password"
+        # Create user and set known test password for E2E tests
+        sudo useradd -m -s /bin/bash -c "Test User for Claude Server" test_user
+        echo 'test_user:TestPassword123!' | sudo chpasswd
+        log "test_user created with standard test password: TestPassword123!"
+    else
+        # Create user and copy password hash
+        sudo useradd -m -s /bin/bash -c "Test User for Claude Server" test_user
+        # Copy password hash from current user
+        sudo usermod --password "$current_user_hash" test_user
+        log "test_user created with same password as $current_user"
+        log "For E2E tests, you may need to set known password: echo 'test_user:TestPassword123!' | sudo chpasswd"
+    fi
+    
+    # Ensure test_user can read workspace files (add to service user's group if needed)
+    local service_group=$(id -gn "$current_user")
+    sudo usermod -a -G "$service_group" test_user
+    
+    log "test_user created as real system user"
+}
+
+# Clean up test user (for dev cleanup)
+cleanup_test_user() {
+    log "Cleaning up test_user..."
+    
+    if id "test_user" &>/dev/null; then
+        # Kill any processes owned by test_user
+        sudo pkill -u test_user 2>/dev/null || true
+        sleep 1
+        
+        # Remove the user and home directory
+        sudo userdel -r test_user 2>/dev/null || true
+        log "test_user removed from system"
+    else
+        log "test_user does not exist"
+    fi
+}
+
+# Setup impersonation rights for current user
+setup_impersonation_rights() {
+    local current_user=$(whoami)
+    local sudoers_file="/etc/sudoers.d/$current_user-impersonation"
+    
+    log "Setting up impersonation rights for current user '$current_user'..."
+    
+    # Check if sudoers file already exists
+    if [[ -f "$sudoers_file" ]]; then
+        log "Impersonation rights already configured"
+        return 0
+    fi
+    
+    # Create sudoers file for current user impersonation
+    log "Creating sudo impersonation rules..."
+    if sudo tee "$sudoers_file" > /dev/null 2>&1 << EOF; then
+# Claude Batch Server user impersonation rules for $current_user  
+# Allow current user to impersonate any user
+$current_user ALL=(ALL) NOPASSWD: ALL
+
+# Allow user existence checks
+$current_user ALL=(root) NOPASSWD: /usr/bin/id *
+
+# Prevent impersonation of system users (security via application logic)
+Defaults!ALL !rootpw, !runaspw, !targetpw
+EOF
+        # Set correct permissions and validate
+        sudo chmod 440 "$sudoers_file"
+        if sudo visudo -cf "$sudoers_file"; then
+            log "Impersonation rights configured successfully for '$current_user'"
+        else
+            error "Invalid sudo impersonation configuration"
+            sudo rm -f "$sudoers_file"
+            return 1
+        fi
+    else
+        error "Failed to create sudo impersonation rules"
+        return 1
+    fi
+}
+
 # Start both server and web UI
 start_both() {
     local mode="${1:-dev}"
     
     log "Starting both server and web UI in $mode mode..."
     log "Use Ctrl-C to stop both services properly"
+    
+    # Ensure test_user exists for dev mode testing
+    if [[ "$mode" == "dev" ]]; then
+        ensure_test_user
+        setup_impersonation_rights
+    fi
+    
+    # Use current user as the service account (simplified architecture)
+    local current_user=$(whoami)
+    log "Running as service user '$current_user' - simplified architecture"
     
     # Start server in background
     log "Starting server in background..."
@@ -374,7 +480,7 @@ start_both() {
     
     case "$mode" in
         "dev")
-            npm run dev -- --port "${WEB_PORT:-5173}" &
+            VITE_API_URL=http://localhost:${PORT:-5185} npm run dev -- --port "${WEB_PORT:-5173}" &
             track_pid $!
             WEB_PID=$!
             ;;

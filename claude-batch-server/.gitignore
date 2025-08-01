@@ -30,3 +30,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Backup Files
+claude-server-passwd.backup.*
+claude-server-shadow.backup.*

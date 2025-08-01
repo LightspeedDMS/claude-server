@@ -77,6 +77,22 @@ public abstract class BaseCommand : Command
         return serviceProvider.GetRequiredService<T>();
     }
 
+    protected static void ApplyServerUrlOverride(InvocationContext context, IApiClient apiClient)
+    {
+        // Check for global --server-url override and apply it
+        // Since we can't easily access the global option, parse from command line args directly
+        var args = Environment.GetCommandLineArgs();
+        var serverUrlIndex = Array.FindIndex(args, arg => arg == "--server-url" || arg == "--url");
+        if (serverUrlIndex >= 0 && serverUrlIndex < args.Length - 1)
+        {
+            var serverUrlOverride = args[serverUrlIndex + 1];
+            if (!string.IsNullOrEmpty(serverUrlOverride))
+            {
+                apiClient.SetBaseUrl(serverUrlOverride);
+            }
+        }
+    }
+
     protected static void WriteSuccess(string message)
     {
         AnsiConsole.MarkupLine("[green]✓[/] {0}", message);
@@ -237,6 +253,9 @@ public abstract class AuthenticatedCommand : BaseCommand
         
         // Get the API client instance once
         var apiClient = GetRequiredService<IApiClient>(context);
+        
+        // Apply server URL override if provided
+        ApplyServerUrlOverride(context, apiClient);
         
         // Ensure authenticated and set token on the same instance
         var authService = GetRequiredService<IAuthService>(context);

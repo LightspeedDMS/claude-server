@@ -1382,6 +1382,42 @@ install_pipx() {
     fi
 }
 
+# Pre-pull Docker images used by CIDX to cache them locally
+pre_pull_cidx_images() {
+    log "Pre-pulling CIDX Docker images to cache them locally..."
+    
+    # List of Docker images that CIDX uses (from Dockerfiles in code-indexer)
+    local cidx_images=(
+        "qdrant/qdrant:latest"
+        "ollama/ollama:latest" 
+        "alpine:latest"
+    )
+    
+    # Only attempt to pull images if Docker is running
+    if ! docker info >/dev/null 2>&1; then
+        warn "Docker is not running, skipping image pre-pull"
+        return 0
+    fi
+    
+    local pulled_count=0
+    local total_images=${#cidx_images[@]}
+    
+    for image in "${cidx_images[@]}"; do
+        log "Pulling Docker image: $image"
+        if docker pull "$image" >/dev/null 2>&1; then
+            log "✓ Successfully pulled $image"
+            ((pulled_count++))
+        else
+            warn "⚠ Failed to pull $image (will be downloaded when first needed)"
+        fi
+    done
+    
+    log "Pre-pulled $pulled_count/$total_images CIDX Docker images"
+    if [[ $pulled_count -gt 0 ]]; then
+        log "✓ CIDX container startup will be faster due to cached images"
+    fi
+}
+
 # Install Code Indexer (cidx)
 install_code_indexer() {
     log "Installing Code Indexer (cidx)..."
@@ -1395,6 +1431,9 @@ install_code_indexer() {
             sudo ln -sf "$HOME/.local/bin/cidx" /usr/local/bin/cidx
             log "Created system-wide symlink for cidx"
         fi
+        
+        # Pre-pull Docker images for faster CIDX startup
+        pre_pull_cidx_images
     else
         warn "Code Indexer installation may have failed, but continuing..."
     fi
@@ -2271,17 +2310,21 @@ build_and_deploy() {
     # Build web UI
     build_web_ui
     
+    # Create service user and configure permissions
+    create_service_user
+    configure_service_user_groups  
+    configure_sudo_impersonation
+    setup_service_user_environment
+    
     # Create systemd service
     create_systemd_service
     
     # Create workspace directories (idempotent)
     sudo mkdir -p /workspace/repos /workspace/jobs /var/log/claude-batch-server
     
-    # Set proper permissions for current user (idempotent)
-    local current_user=$(whoami)
-    local current_group=$(id -gn)
-    sudo chown -R "$current_user:$current_group" /workspace
-    sudo chown -R "$current_user:$current_group" /var/log/claude-batch-server
+    # Set proper permissions for service user (idempotent)
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /workspace
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /var/log/claude-batch-server
     sudo chmod 755 /workspace /workspace/repos /workspace/jobs
     sudo chmod 755 /var/log/claude-batch-server
     
@@ -2668,9 +2711,122 @@ EOF
     fi
 }
 
+# Service user configuration
+SERVICE_USER="claude-batch-server"
+SERVICE_GROUP="claude-batch-server"
+SERVICE_HOME="/var/lib/claude-batch-server"
+
+# Create service user
+create_service_user() {
+    log "Creating service user '$SERVICE_USER'..."
+    
+    if id "$SERVICE_USER" &>/dev/null; then
+        log "Service user '$SERVICE_USER' already exists"
+        return 0
+    fi
+    
+    # Create system user with home directory
+    sudo useradd --system \
+        --home-dir "$SERVICE_HOME" \
+        --create-home \
+        --shell /bin/bash \
+        --comment "Claude Batch Server Service User" \
+        "$SERVICE_USER"
+        
+    # Set appropriate permissions
+    sudo chmod 750 "$SERVICE_HOME"
+    
+    log "Service user '$SERVICE_USER' created successfully"
+}
+
+# Configure service user groups
+configure_service_user_groups() {
+    log "Configuring service user groups..."
+    
+    # Add to shadow group for authentication
+    if ! groups "$SERVICE_USER" | grep -q "\bshadow\b"; then
+        log "Adding service user '$SERVICE_USER' to shadow group for authentication access..."
+        sudo usermod -a -G shadow "$SERVICE_USER"
+        log "Service user '$SERVICE_USER' added to shadow group"
+    else
+        log "Service user '$SERVICE_USER' already in shadow group"
+    fi
+    
+    # Add to docker group for cidx
+    if ! groups "$SERVICE_USER" | grep -q "\bdocker\b"; then
+        log "Adding service user '$SERVICE_USER' to docker group for cidx access..."
+        sudo usermod -aG docker "$SERVICE_USER"
+        log "Service user '$SERVICE_USER' added to docker group"
+    else
+        log "Service user '$SERVICE_USER' already in docker group"
+    fi
+    
+    log "Service user groups configured"
+}
+
+# Configure sudo impersonation
+configure_sudo_impersonation() {
+    log "Configuring sudo rules for user impersonation..."
+    
+    local sudoers_file="/etc/sudoers.d/claude-batch-server"
+    
+    sudo tee "$sudoers_file" > /dev/null << 'EOF'
+# Claude Batch Server user impersonation rules
+# Allow service user to impersonate regular users (UID >= 1000)
+claude-batch-server ALL=(#>=1000) NOPASSWD: ALL
+
+# Allow user existence checks
+claude-batch-server ALL=(root) NOPASSWD: /usr/bin/id *
+
+# Prevent impersonation of system users
+Defaults!ALL !rootpw, !runaspw, !targetpw
+EOF
+
+    sudo chmod 440 "$sudoers_file"
+    
+    # Validate sudoers configuration
+    if sudo visudo -cf "$sudoers_file"; then
+        log "Sudo configuration created successfully"
+    else
+        error "Invalid sudo configuration"
+        sudo rm -f "$sudoers_file"
+        exit 1
+    fi
+}
+
+# Set up service user environment
+setup_service_user_environment() {
+    log "Setting up service user environment..."
+    
+    # Copy .NET installation to service user if needed
+    if [[ -d "$HOME/.dotnet" ]]; then
+        sudo cp -r "$HOME/.dotnet" "$SERVICE_HOME/"
+        sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$SERVICE_HOME/.dotnet"
+        log "Copied .NET installation to service user"
+    fi
+    
+    # Copy Claude CLI if needed
+    local claude_path=$(which claude 2>/dev/null || echo "")
+    if [[ -n "$claude_path" ]]; then
+        local claude_dir=$(dirname "$claude_path")
+        if [[ "$claude_dir" == "$HOME/.local/bin" ]]; then
+            sudo mkdir -p "$SERVICE_HOME/.local/bin"
+            sudo cp "$claude_path" "$SERVICE_HOME/.local/bin/"
+            sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$SERVICE_HOME/.local"
+            log "Copied Claude CLI to service user"
+        fi
+    fi
+    
+    # Set up workspace permissions
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /workspace
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /var/log/claude-batch-server
+    
+    log "Service user environment configured"
+}
+
 # Create systemd service
 create_systemd_service() {
-    log "Creating systemd service..."
+    log "Creating systemd service with service user..."
     
     # Detect actual dotnet path
     local dotnet_path
@@ -2744,20 +2900,24 @@ Wants=network.target
 
 [Service]
 Type=exec
-User=$current_user
-Group=$current_group
+User=$SERVICE_USER
+Group=$SERVICE_USER
 WorkingDirectory=$PROJECT_DIR/src/ClaudeBatchServer.Api/bin/Release/net8.0/publish
 ExecStart=$dotnet_path ClaudeBatchServer.Api.dll
 Restart=always
 RestartSec=10
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://0.0.0.0:5185
-Environment=DOTNET_ROOT=$dotnet_root
-Environment=PATH=$service_path
+Environment=DOTNET_ROOT=$SERVICE_HOME/.dotnet
+Environment=PATH=$SERVICE_HOME/.local/bin:$SERVICE_HOME/.dotnet:/usr/local/bin:/usr/bin:/bin
 
-# Security settings
-NoNewPrivileges=true
+# Security settings (allow privilege changes for user impersonation)
+NoNewPrivileges=false
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/workspace /var/log/claude-batch-server /tmp
 
 [Install]
 WantedBy=multi-user.target

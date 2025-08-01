@@ -557,13 +557,13 @@ public class JobFilesDeleteCommand : AuthenticatedCommand
         AddOption(_forceOption);
     }
     
-    protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
+    protected override Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
     {
         var jobId = context.ParseResult.GetValueForArgument(_jobIdArgument);
         var fileName = context.ParseResult.GetValueForArgument(_fileNameArgument);
         var force = context.ParseResult.GetValueForOption(_forceOption);
         
         // Mock deletion - just return success for tests
-        return 0;
+        return Task.FromResult(0);
     }
 }

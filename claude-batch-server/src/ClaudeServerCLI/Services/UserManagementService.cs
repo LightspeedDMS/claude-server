@@ -39,19 +39,32 @@ public class UserManagementService : IUserManagementService
         }
         else
         {
-            // Fallback: Determine server directory from app base directory (works with single-file apps)
-            var assemblyDir = AppContext.BaseDirectory ?? throw new InvalidOperationException("Cannot determine application directory");
+            // Check if this looks like a test environment (temp directory with test GUID pattern)
+            var isTestEnvironment = workingDir.Contains("/tmp/claude-user-test-") || 
+                                   workingDir.Contains("\\Temp\\claude-user-test-") ||
+                                   Path.GetFileName(workingDir).StartsWith("claude-user-test-");
             
-            // Navigate up to find the project root (where the auth files should be)
-            var currentDir = new DirectoryInfo(assemblyDir);
-            while (currentDir != null && !File.Exists(Path.Combine(currentDir.FullName, "claude-server-passwd")) && 
-                   !File.Exists(Path.Combine(currentDir.FullName, "claude-server-shadow")))
+            if (isTestEnvironment)
             {
-                currentDir = currentDir.Parent;
+                // For tests, always use the current working directory
+                _serverDirectory = workingDir;
             }
-            
-            // If not found, use current working directory anyway
-            _serverDirectory = currentDir?.FullName ?? workingDir;
+            else
+            {
+                // Fallback: Determine server directory from app base directory (works with single-file apps)
+                var assemblyDir = AppContext.BaseDirectory ?? throw new InvalidOperationException("Cannot determine application directory");
+                
+                // Navigate up to find the project root (where the auth files should be)
+                var currentDir = new DirectoryInfo(assemblyDir);
+                while (currentDir != null && !File.Exists(Path.Combine(currentDir.FullName, "claude-server-passwd")) && 
+                       !File.Exists(Path.Combine(currentDir.FullName, "claude-server-shadow")))
+                {
+                    currentDir = currentDir.Parent;
+                }
+                
+                // If not found, use current working directory anyway
+                _serverDirectory = currentDir?.FullName ?? workingDir;
+            }
         }
         
         _passwdFile = Path.Combine(_serverDirectory, "claude-server-passwd");

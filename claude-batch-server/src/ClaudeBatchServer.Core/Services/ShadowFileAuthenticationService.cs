@@ -187,13 +187,12 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         if (parts.Length < 4) return false;
 
         var algorithm = parts[1];
-        var salt = parts[2];
 
         return algorithm switch
         {
-            "1" => VerifyMD5Hash(password, salt, parts[3]),
-            "5" => VerifySHA256Hash(password, salt, parts[3]),
-            "6" => VerifySHA512Hash(password, salt, parts[3]),
+            "1" => VerifyMD5Hash(password, parts[2], parts[3]),
+            "5" => VerifySHA256Hash(password, parts[2], parts[3]),
+            "6" => VerifySHA512HashWithRounds(password, hash),
             "y" => VerifyYescryptHash(password, hash),
             _ => HandleUnsupportedAlgorithm(algorithm)
         };
@@ -223,18 +222,68 @@ public class ShadowFileAuthenticationService : IAuthenticationService
         return computedHash == expectedHash;
     }
 
-    private bool VerifySHA512Hash(string password, string salt, string expectedHash)
+    private bool VerifySHA512HashWithRounds(string password, string completeHash)
     {
-        // For now, use a simple approach that calls the system crypt via Python
-        // This is not ideal for production but works for testing
+        // Use system crypt via Python with complete hash for verification
+        // This handles all SHA-512 variants including rounds= parameter
         try
         {
+            _logger.LogDebug("SHA-512 verification: password='{Password}', hash='{Hash}'", password, completeHash);
+            
             var process = new System.Diagnostics.Process
             {
                 StartInfo = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "python3",
-                    Arguments = $"-c \"import crypt; print(crypt.crypt('{password}', '$6${salt}$'), end='')\"",
+                    Arguments = $"-c \"import crypt; print(crypt.crypt('{password}', '{completeHash}') == '{completeHash}', end='')\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            
+            process.Start();
+            var result = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            
+            _logger.LogDebug("SHA-512 verification: exitCode={ExitCode}, result='{Result}', error='{Error}'", 
+                process.ExitCode, result, error);
+            
+            if (process.ExitCode == 0 && !string.IsNullOrEmpty(result))
+            {
+                var isMatch = result.Trim().ToLower() == "true";
+                _logger.LogDebug("SHA-512 verification final result: {IsMatch}", isMatch);
+                return isMatch;
+            }
+            
+            _logger.LogWarning("SHA-512 verification failed: exitCode={ExitCode}, result='{Result}', error='{Error}'",
+                process.ExitCode, result, error);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SHA-512 password verification failed");
+            return false;
+        }
+    }
+
+    private bool VerifySHA512Hash(string password, string salt, string expectedHash)
+    {
+        // Legacy method for simple SHA-512 hashes without rounds
+        // Use system crypt via Python with complete hash for verification
+        try
+        {
+            // Reconstruct the complete hash from parts
+            var completeHash = $"$6${salt}${expectedHash}";
+            
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "python3",
+                    Arguments = $"-c \"import crypt; print(crypt.crypt('{password}', '{completeHash}') == '{completeHash}', end='')\"",
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -247,12 +296,7 @@ public class ShadowFileAuthenticationService : IAuthenticationService
             
             if (process.ExitCode == 0 && !string.IsNullOrEmpty(result))
             {
-                // Extract just the hash part (after the second $)
-                var parts = result.Split('$');
-                if (parts.Length >= 4)
-                {
-                    return parts[3] == expectedHash;
-                }
+                return result.Trim().ToLower() == "true";
             }
             
             return false;

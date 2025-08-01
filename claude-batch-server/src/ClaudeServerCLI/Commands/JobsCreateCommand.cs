@@ -21,6 +21,7 @@ public class JobsCreateCommand : AuthenticatedCommand
     private readonly Option<bool> _autoStartOption;
     private readonly Option<bool> _watchOption;
     private readonly Option<int> _timeoutOption;
+    private readonly Option<bool?> _cidxAwareOption;
 
     public JobsCreateCommand() : base("create", "Create a new job with advanced features")
     {
@@ -69,6 +70,12 @@ public class JobsCreateCommand : AuthenticatedCommand
             getDefaultValue: () => 300
         );
 
+        _cidxAwareOption = new Option<bool?>(
+            aliases: ["--cidx-aware", "--cidx"],
+            description: "Enable semantic indexing with CIDX (overrides repository default)",
+            getDefaultValue: () => null
+        );
+
         AddOption(_repositoryOption);
         AddOption(_promptOption);
         AddOption(_fileOption);
@@ -77,6 +84,7 @@ public class JobsCreateCommand : AuthenticatedCommand
         AddOption(_autoStartOption);
         AddOption(_watchOption);
         AddOption(_timeoutOption);
+        AddOption(_cidxAwareOption);
     }
 
     protected override async Task<int> ExecuteAuthenticatedAsync(InvocationContext context, string profile, IApiClient apiClient)
@@ -89,6 +97,7 @@ public class JobsCreateCommand : AuthenticatedCommand
         var autoStart = context.ParseResult.GetValueForOption(_autoStartOption);
         var watch = context.ParseResult.GetValueForOption(_watchOption);
         var timeout = context.ParseResult.GetValueForOption(_timeoutOption);
+        var cidxAwareOverride = context.ParseResult.GetValueForOption(_cidxAwareOption);
         var cancellationToken = context.GetCancellationToken();        var promptService = GetRequiredService<IPromptService>(context);
         var fileUploadService = GetRequiredService<IFileUploadService>(context);
 
@@ -103,7 +112,7 @@ public class JobsCreateCommand : AuthenticatedCommand
                 return await ExecuteInteractiveModeAsync(
                     apiClient, promptService, fileUploadService, 
                     repository, promptOption, files.ToList(), 
-                    autoStart, watch, timeout, overwrite, 
+                    autoStart, watch, timeout, overwrite, cidxAwareOverride,
                     cancellationToken);
             }
 
@@ -111,7 +120,7 @@ public class JobsCreateCommand : AuthenticatedCommand
             return await ExecuteCommandLineModeAsync(
                 apiClient, promptService, fileUploadService,
                 repository, promptOption, files.ToList(),
-                autoStart, watch, timeout, overwrite,
+                autoStart, watch, timeout, overwrite, cidxAwareOverride,
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -137,6 +146,7 @@ public class JobsCreateCommand : AuthenticatedCommand
         bool watch,
         int timeout,
         bool overwrite,
+        bool? cidxAwareOverride,
         CancellationToken cancellationToken)
     {
         try
@@ -242,7 +252,7 @@ public class JobsCreateCommand : AuthenticatedCommand
             // Execute job creation
             return await CreateAndExecuteJobAsync(
                 apiClient, promptService, fileUploadService,
-                repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
+                repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cidxAwareOverride, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -262,6 +272,7 @@ public class JobsCreateCommand : AuthenticatedCommand
         bool watch,
         int timeout,
         bool overwrite,
+        bool? cidxAwareOverride,
         CancellationToken cancellationToken)
     {
         // Validate required parameters for command-line mode
@@ -313,7 +324,7 @@ public class JobsCreateCommand : AuthenticatedCommand
 
         return await CreateAndExecuteJobAsync(
             apiClient, promptService, fileUploadService,
-            repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cancellationToken);
+            repository, repositoryInfo, prompt, files, autoStart, watch, timeout, overwrite, cidxAwareOverride, cancellationToken);
     }
 
     private async Task<int> CreateAndExecuteJobAsync(
@@ -328,6 +339,7 @@ public class JobsCreateCommand : AuthenticatedCommand
         bool watch,
         int timeout,
         bool overwrite,
+        bool? cidxAwareOverride,
         CancellationToken cancellationToken)
     {
         return await InteractiveUI.ShowProgress(async (progress) =>
@@ -335,11 +347,29 @@ public class JobsCreateCommand : AuthenticatedCommand
             // Step 1: Create the job
             progress.Report(("Creating job...", 10));
             
-            // Use repository's CIDX capability to determine job CIDX setting
-            var cidxAware = repositoryInfo.CidxAware ?? false;
-            if (!cidxAware)
+            // Determine job CIDX setting: use explicit override if provided, otherwise use repository default
+            var repositoryCidxAware = repositoryInfo.CidxAware ?? false;
+            var cidxAware = cidxAwareOverride ?? repositoryCidxAware;
+
+            // Validate CIDX usage
+            if (cidxAwareOverride.HasValue && cidxAwareOverride.Value && !repositoryCidxAware)
+            {
+                WriteError("Cannot enable CIDX for job: Repository is not CIDX-aware");
+                WriteInfo("Create the repository with --cidx-aware flag to enable semantic indexing");
+                return 1;
+            }
+
+            if (cidxAwareOverride.HasValue)
+            {
+                WriteInfo($"Using explicit CIDX setting: {(cidxAware ? "enabled" : "disabled")}");
+            }
+            else if (!cidxAware)
             {
                 WriteInfo("Repository is not CIDX-aware, creating job without semantic search");
+            }
+            else
+            {
+                WriteInfo("Using repository's CIDX-aware setting");
             }
             
             var request = new CreateJobRequest

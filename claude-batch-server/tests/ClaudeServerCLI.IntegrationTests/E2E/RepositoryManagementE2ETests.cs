@@ -275,13 +275,13 @@ public class RepositoryManagementE2ETests : E2ETestBase
         
         // Create CIDX-enabled repo
         var repoResult = await CliHelper.ExecuteCommandAsync(
-            $"repos create --name {cidxRepoName} --git-url {TestGitRepo} --cidx");
+            $"repos create --name {cidxRepoName} --git-url {TestGitRepo} --cidx-aware");
         repoResult.Success.Should().BeTrue();
         CreatedRepoIds.Add(cidxRepoName);
         
-        // Launch CIDX-enabled job
+        // Launch CIDX-enabled job (should inherit repository's CIDX setting)
         var jobResult = await CliHelper.ExecuteCommandAsync(
-            $"jobs create --repo {cidxRepoName} --prompt \"Test CIDX job\" --cidx");
+            $"jobs create --repo {cidxRepoName} --prompt \"Test CIDX job\"");
         
         Output.WriteLine($"CIDX job creation result: {jobResult.CombinedOutput}");
         jobResult.Success.Should().BeTrue();
@@ -297,7 +297,7 @@ public class RepositoryManagementE2ETests : E2ETestBase
         
         // Create CIDX-enabled repo
         var repoResult = await CliHelper.ExecuteCommandAsync(
-            $"repos create --name {cidxRepoName} --git-url {TestGitRepo} --cidx");
+            $"repos create --name {cidxRepoName} --git-url {TestGitRepo} --cidx-aware");
         repoResult.Success.Should().BeTrue();
         CreatedRepoIds.Add(cidxRepoName);
         
@@ -323,13 +323,13 @@ public class RepositoryManagementE2ETests : E2ETestBase
         repoResult.Success.Should().BeTrue();
         CreatedRepoIds.Add(nonCidxRepoName);
         
-        // Try to launch CIDX job on non-CIDX repo (should fail)
+        // Try to explicitly enable CIDX job on non-CIDX repo (should fail)
         var jobResult = await CliHelper.ExecuteCommandAsync(
-            $"jobs create --repo {nonCidxRepoName} --prompt \"Test CIDX job\" --cidx");
+            $"jobs create --repo {nonCidxRepoName} --prompt \"Test CIDX job\" --cidx-aware true");
         
         Output.WriteLine($"CIDX job on non-CIDX repo result: {jobResult.CombinedOutput}");
         jobResult.Success.Should().BeFalse();
-        jobResult.CombinedOutput.Should().ContainAny("CIDX", "not enabled", "not supported", "incompatible", "error", "failed");
+        jobResult.CombinedOutput.Should().ContainAny("CIDX", "not enabled", "not supported", "incompatible", "error", "failed", "not CIDX-aware");
     }
     
     [Fact]

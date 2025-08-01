@@ -794,6 +794,9 @@ public class CowRepositoryService : IRepositoryService
         var filesPath = Path.Combine(jobPath, "files");
         Directory.CreateDirectory(filesPath);
 
+        // Set proper permissions for multi-user access
+        await SetWorkspacePermissionsAsync(jobPath);
+
         _logger.LogInformation("Created CoW clone of {Repository} at {JobPath} using {Method}", 
             repositoryName, jobPath, _cowMethod);
 
@@ -1139,6 +1142,69 @@ public class CowRepositoryService : IRepositoryService
         }
         
         _logger.LogInformation("Full copy completed successfully from {SourcePath} to {TargetPath}", sourcePath, targetPath);
+    }
+
+    /// <summary>
+    /// Sets proper permissions on workspace directories for multi-user access
+    /// </summary>
+    private async Task SetWorkspacePermissionsAsync(string path)
+    {
+        try
+        {
+            _logger.LogDebug("Setting workspace permissions for: {Path}", path);
+            
+            // Set group ownership to claude-batch-users
+            var chgrpProcess = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "chgrp",
+                    Arguments = $"-R claude-batch-users \"{path}\"",
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            
+            chgrpProcess.Start();
+            var chgrpError = await chgrpProcess.StandardError.ReadToEndAsync();
+            await chgrpProcess.WaitForExitAsync();
+            
+            if (chgrpProcess.ExitCode != 0)
+            {
+                _logger.LogWarning("Failed to set group ownership on {Path}: {Error}", path, chgrpError);
+            }
+            
+            // Set group read/write/execute permissions
+            var chmodProcess = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "chmod",
+                    Arguments = $"-R g+rwX \"{path}\"",
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            
+            chmodProcess.Start();
+            var chmodError = await chmodProcess.StandardError.ReadToEndAsync();
+            await chmodProcess.WaitForExitAsync();
+            
+            if (chmodProcess.ExitCode != 0)
+            {
+                _logger.LogWarning("Failed to set group permissions on {Path}: {Error}", path, chmodError);
+            }
+            else
+            {
+                _logger.LogDebug("Successfully set workspace permissions for: {Path}", path);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set workspace permissions for: {Path}", path);
+        }
     }
 
     /// <summary>

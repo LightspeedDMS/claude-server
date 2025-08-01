@@ -23,13 +23,11 @@ public class TestServerHarness : IAsyncLifetime
     private readonly string _serverUrl;
     private readonly string _testWorkspaceRoot;
     private readonly string _testConfigPath;
-    private readonly string _testPasswdPath;
-    private readonly string _testShadowPath;
     
     public string ServerUrl => _serverUrl;
     public string TestWorkspaceRoot => _testWorkspaceRoot;
-    public string TestUser => "testuser";
-    public string TestPassword => "TestPass123!";
+    public string TestUser => "test_user";
+    public string TestPassword => GetCurrentUserPassword();
     public string TestPasswordHash => "$5$testsalt$GFbozh8usqmWm9UnDbf75M6L8M96mgoyVbDr+lXlUxE";
 
     public TestServerHarness()
@@ -44,10 +42,8 @@ public class TestServerHarness : IAsyncLifetime
         Directory.CreateDirectory(Path.Combine(_testWorkspaceRoot, "repos"));
         Directory.CreateDirectory(Path.Combine(_testWorkspaceRoot, "jobs"));
         
-        // Create test authentication files
+        // Create test configuration file
         _testConfigPath = Path.Combine(_testWorkspaceRoot, "test-appsettings.json");
-        _testPasswdPath = Path.Combine(_testWorkspaceRoot, "test-passwd");
-        _testShadowPath = Path.Combine(_testWorkspaceRoot, "test-shadow");
         
         Log($"Test server will run on: {_serverUrl}");
         Log($"Test workspace: {_testWorkspaceRoot}");
@@ -74,8 +70,8 @@ public class TestServerHarness : IAsyncLifetime
             Environment.SetEnvironmentVariable("CLAUDE_TEST_PROJECT_ROOT", projectRoot);
             Log($"Set CLAUDE_TEST_PROJECT_ROOT to: {projectRoot}");
             
-            // Create test authentication files
-            await CreateTestAuthenticationFiles();
+            // Verify test user exists
+            await VerifyTestUserExists();
             
             // Create test configuration
             await CreateTestConfiguration();
@@ -158,26 +154,111 @@ public class TestServerHarness : IAsyncLifetime
         Log("Test server harness disposed");
     }
 
-    private async Task CreateTestAuthenticationFiles()
+    private async Task VerifyTestUserExists()
     {
-        Log("Creating test authentication files...");
+        Log("Verifying test_user exists in system...");
         
-        // Create test passwd file (standard unix format)
-        var passwdContent = $"{TestUser}:x:1000:1000:Test User:/home/{TestUser}:/bin/bash\n";
-        await File.WriteAllTextAsync(_testPasswdPath, passwdContent);
+        try
+        {
+            // Check if test_user exists using id command
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "id",
+                    Arguments = TestUser,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            
+            if (process.ExitCode == 0)
+            {
+                Log($"✅ test_user exists: {output.Trim()}");
+                return;
+            }
+            
+            // User doesn't exist - provide detailed instructions
+            var currentUser = Environment.UserName;
+            var errorMessage = $@"
+❌ SETUP REQUIRED: test_user does not exist on this system!
+
+E2E tests require a real system user named 'test_user' to test job execution.
+
+🔧 TO FIX THIS, run the following commands:
+
+    # Method 1: Use the automated setup (recommended)
+    cd /path/to/claude-server
+    ./run.sh both dev    # This will create test_user automatically
+
+    # Method 2: Manual setup
+    sudo useradd -m -s /bin/bash -c ""Test User for Claude Server"" test_user
+    sudo usermod --password $(sudo grep '^{currentUser}:' /etc/shadow | cut -d: -f2) test_user
+    sudo usermod -a -G {currentUser} test_user
+
+    # Method 3: Set known test password (recommended for tests)
+    sudo useradd -m -s /bin/bash -c ""Test User for Claude Server"" test_user
+    echo 'test_user:TestPassword123!' | sudo chpasswd
+
+📋 After creating test_user, the tests will use:
+    Username: test_user  
+    Password: TestPassword123! (if using Method 3)
+    Password: Same as your current user ({currentUser}) (if using Method 2)
+    
+🔍 Current system users with UID 1000+:
+";
+
+            // Show existing users to help with debugging
+            try
+            {
+                var passwdContent = await File.ReadAllTextAsync("/etc/passwd");
+                var users = passwdContent.Split('\n')
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .Select(line => line.Split(':'))
+                    .Where(parts => parts.Length >= 3 && int.TryParse(parts[2], out int uid) && uid >= 1000)
+                    .Select(parts => $"    - {parts[0]} (UID: {parts[2]})")
+                    .ToList();
+                
+                if (users.Any())
+                {
+                    errorMessage += string.Join("\n", users);
+                }
+                else
+                {
+                    errorMessage += "    (No regular users found)";
+                }
+            }
+            catch
+            {
+                errorMessage += "    (Could not read /etc/passwd)";
+            }
+            
+            throw new InvalidOperationException(errorMessage);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw new InvalidOperationException($"Failed to verify test_user existence: {ex.Message}", ex);
+        }
+    }
+    
+    private string GetCurrentUserPassword()
+    {
+        // Since test_user was created with the same password hash as the current user,
+        // we need to return the actual password that matches that hash.
+        // The run.sh script copies the hash, so they should have the same password.
         
-        // Create test shadow file with proper format
-        // For testing, we'll use a known SHA-256 hash
-        // Password: TestPass123!
-        // Salt: testsalt
-        // The server uses simple SHA256(password+salt) then base64 encoding
-        var shadowContent = $"{TestUser}:$5$testsalt$GFbozh8usqmWm9UnDbf75M6L8M96mgoyVbDr+lXlUxE:19000:0:99999:7:::\n";
-        await File.WriteAllTextAsync(_testShadowPath, shadowContent);
+        // For testing purposes, let's try common passwords that might match the hash
+        // If this fails, the user will need to set a known password for test_user
         
-        Log($"Created test passwd file: {_testPasswdPath}");
-        Log($"Passwd content: {passwdContent.Trim()}");
-        Log($"Created test shadow file: {_testShadowPath}");
-        Log($"Shadow content: {shadowContent.Trim()}");
+        // Try the standard test password first  
+        return "TestPassword123!";
     }
 
     private async Task CreateTestConfiguration()
@@ -190,9 +271,10 @@ public class TestServerHarness : IAsyncLifetime
             {
                 LogLevel = new
                 {
-                    Default = "Warning",
+                    Default = "Debug",
                     Microsoft = "Warning",
-                    System = "Warning"
+                    System = "Warning",
+                    ClaudeBatchServer = "Debug"
                 }
             },
             Kestrel = new
@@ -227,8 +309,8 @@ public class TestServerHarness : IAsyncLifetime
             },
             Auth = new
             {
-                PasswdFilePath = _testPasswdPath,
-                ShadowFilePath = _testShadowPath,
+                PasswdFilePath = "/etc/passwd",
+                ShadowFilePath = "/etc/shadow",
                 HashAlgorithm = "SHA256",
                 EnableShadowFileAuth = true
             },
@@ -298,8 +380,8 @@ public class TestServerHarness : IAsyncLifetime
         Log($"Copied test config to: {testConfigInApiDir}");
         
         // Also set via environment variables for redundancy
-        startInfo.EnvironmentVariables["Auth__PasswdFilePath"] = _testPasswdPath;
-        startInfo.EnvironmentVariables["Auth__ShadowFilePath"] = _testShadowPath;
+        startInfo.EnvironmentVariables["Auth__PasswdFilePath"] = "/etc/passwd";
+        startInfo.EnvironmentVariables["Auth__ShadowFilePath"] = "/etc/shadow";
         
         // Override workspace paths to use test directories
         startInfo.EnvironmentVariables["Workspace__JobsPath"] = Path.Combine(_testWorkspaceRoot, "jobs");
